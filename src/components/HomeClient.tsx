@@ -36,13 +36,12 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
   const [pendingList, setPendingList] = useState(pending)
   const [pMap, setPMap] = useState(profileMap)
   const [roomList, setRoomList] = useState(rooms)
-
-  // PC 채팅 패널
   const [activeRoomId, setActiveRoomId] = useState<string | null>(null)
   const [activeMessages, setActiveMessages] = useState<Message[]>([])
   const [chatInput, setChatInput] = useState('')
   const [chatSending, setChatSending] = useState(false)
   const [mounted, setMounted] = useState(false)
+  const [showPartnerProfile, setShowPartnerProfile] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -56,7 +55,6 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [activeMessages])
 
-  // 실시간 메시지 구독
   useEffect(() => {
     if (!activeRoomId) return
     const channel = supabase.channel(`room:${activeRoomId}`)
@@ -68,6 +66,7 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
 
   const openRoom = async (roomId: string) => {
     setActiveRoomId(roomId)
+    setShowPartnerProfile(false)
     const { data } = await supabase.from('kyorangtalk_messages').select('*').eq('room_id', roomId).order('created_at', { ascending: true })
     setActiveMessages(data || [])
     setTab('chats')
@@ -131,11 +130,7 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
     const { data: existing } = await supabase.from('kyorangtalk_rooms').select('*').eq('user1_id', user1_id).eq('user2_id', user2_id).single()
     if (existing) { openRoom(existing.id); setTab('chats'); return }
     const { data: newRoom } = await supabase.from('kyorangtalk_rooms').insert({ user1_id, user2_id }).select().single()
-    if (newRoom) {
-      setRoomList(prev => [newRoom, ...prev])
-      openRoom(newRoom.id)
-      setTab('chats')
-    }
+    if (newRoom) { setRoomList(prev => [newRoom, ...prev]); openRoom(newRoom.id); setTab('chats') }
   }
 
   const getFriendUserId = (f: Friend) => f.requester_id === userId ? f.receiver_id : f.requester_id
@@ -216,8 +211,14 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
       const isLastInGroup = !next || !isSameMinute(msg.created_at, next.created_at) || next.sender_id !== msg.sender_id
       const isFirstInGroup = !prev || prev.sender_id !== msg.sender_id || !isSameMinute(prev.created_at, msg.created_at)
       elements.push(
-        <div key={msg.id} className={`flex ${isMine ? 'justify-end' : 'justify-start'} ${!isFirstInGroup ? 'mt-0.5' : 'mt-3'}`}>
-          <div className={`flex flex-col ${isMine ? 'items-end' : 'items-start'} max-w-[72%]`}>
+        <div key={msg.id} className={`flex items-end gap-2 ${isMine ? 'justify-end' : 'justify-start'} ${!isFirstInGroup ? 'mt-0.5' : 'mt-3'}`}>
+          {!isMine && (
+            <div style={{ width: 28, flexShrink: 0 }}>
+              {isLastInGroup && <Avatar p={activePartner} size={28} />}
+            </div>
+          )}
+          <div className={`flex flex-col ${isMine ? 'items-end' : 'items-start'} max-w-[68%]`}>
+            {!isMine && isFirstInGroup && <p className="text-xs mb-1 px-1" style={{ color: t.muted }}>{activePartner?.nickname}</p>}
             <div className="px-4 py-2.5 text-sm leading-relaxed"
               style={{
                 background: isMine ? t.myBubble : t.theirBubble,
@@ -272,7 +273,7 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
                     {r.status_message && <p className="text-xs" style={{ color: t.muted }}>{r.status_message}</p>}
                   </div>
                 </div>
-                <button onClick={() => sendFriendRequest(r.id)} className="text-xs px-3 py-1.5 rounded-full font-medium" style={{ background: t.accentLight, color: t.accentText, border: `1px solid ${t.accentBorder}` }}>추가</button>
+                <button onClick={() => sendFriendRequest(r.id)} className="text-xs px-3 py-1.5 rounded-full font-medium flex-shrink-0" style={{ background: t.accentLight, color: t.accentText, border: `1px solid ${t.accentBorder}` }}>추가</button>
               </div>
             ))}
           </div>
@@ -289,8 +290,8 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
                 <p className="text-sm font-medium" style={{ color: t.text }}>{pMap[req.requester_id]?.nickname || '알 수 없음'}</p>
               </div>
               <div className="flex gap-2">
-                <button onClick={() => acceptFriend(req.id)} className="text-xs px-3 py-1.5 rounded-full font-medium text-white" style={{ background: t.accent }}>수락</button>
-                <button onClick={() => rejectFriend(req.id)} className="text-xs px-3 py-1.5 rounded-full" style={{ background: t.inputBg, color: t.muted }}>거절</button>
+                <button onClick={() => acceptFriend(req.id)} className="text-xs px-3 py-1.5 rounded-full font-medium text-white flex-shrink-0" style={{ background: t.accent }}>수락</button>
+                <button onClick={() => rejectFriend(req.id)} className="text-xs px-3 py-1.5 rounded-full flex-shrink-0" style={{ background: t.inputBg, color: t.muted }}>거절</button>
               </div>
             </div>
           ))}
@@ -312,7 +313,7 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
                     {fp?.status_message && <p className="text-xs mt-0.5" style={{ color: t.muted }}>{fp.status_message}</p>}
                   </div>
                 </div>
-                <button onClick={() => startChat(fId)} className="text-xs px-3 py-1.5 rounded-full font-medium" style={{ background: t.accentLight, color: t.accentText, border: `1px solid ${t.accentBorder}` }}>채팅</button>
+                <button onClick={() => startChat(fId)} className="text-xs px-3 py-1.5 rounded-full font-medium flex-shrink-0" style={{ background: t.accentLight, color: t.accentText, border: `1px solid ${t.accentBorder}` }}>채팅</button>
               </div>
             )
           })}
@@ -345,7 +346,7 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
               <div className="flex-1 min-w-0">
                 <div className="flex items-center justify-between mb-1">
                   <span className="font-semibold text-sm" style={{ color: t.text }}>{partner?.nickname || '알 수 없음'}</span>
-                  {room.last_message_at && <span className="text-xs" style={{ color: t.muted }}>{formatTime(room.last_message_at)}</span>}
+                  {room.last_message_at && <span className="text-xs flex-shrink-0 ml-2" style={{ color: t.muted }}>{formatTime(room.last_message_at)}</span>}
                 </div>
                 <p className="text-xs truncate" style={{ color: t.muted }}>{room.last_message || '대화를 시작해보세요'}</p>
               </div>
@@ -394,11 +395,9 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
 
         {/* 아이콘 사이드바 */}
         <div className="flex flex-col items-center py-6 gap-3 flex-shrink-0" style={{ width: 68, background: t.sidebarBg, borderRight: `1px solid ${t.border}` }}>
-          <div className="mb-2">
-            <Avatar p={profile} size={34} />
-          </div>
+          <div className="mb-2"><Avatar p={profile} size={34} /></div>
           {tabs.map(({ key, icon, badge }) => (
-            <button key={key} onClick={() => setTab(key)} className="relative w-10 h-10 rounded-xl flex items-center justify-center text-base transition-all" title={key === 'friends' ? '친구' : key === 'chats' ? '채팅' : '설정'} style={{ background: tab === key ? t.accentLight : 'transparent' }}>
+            <button key={key} onClick={() => setTab(key)} className="relative w-10 h-10 rounded-xl flex items-center justify-center text-base transition-all" style={{ background: tab === key ? t.accentLight : 'transparent' }}>
               {icon}
               {badge > 0 && <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full text-white flex items-center justify-center font-bold" style={{ background: '#ef4444', fontSize: 9 }}>{badge}</span>}
             </button>
@@ -422,38 +421,64 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
           </div>
         </div>
 
-        {/* 채팅 패널 */}
-        <div className="flex-1 flex flex-col overflow-hidden" style={{ background: t.bg }}>
+        {/* 채팅 + 프로필 패널 */}
+        <div className="flex-1 flex overflow-hidden" style={{ background: t.bg }}>
           {activeRoomId && activeRoom ? (
             <>
-              {/* 채팅 헤더 */}
-              <div className="flex-shrink-0 flex items-center gap-3 px-6 h-14" style={{ background: t.surface, borderBottom: `1px solid ${t.border}` }}>
-                <Avatar p={activePartner} size={34} />
-                <p className="font-semibold text-sm" style={{ color: t.text }}>{activePartner?.nickname || '알 수 없음'}</p>
+              {/* 채팅 영역 */}
+              <div className="flex-1 flex flex-col overflow-hidden">
+                <div className="flex-shrink-0 flex items-center gap-3 px-6 h-14" style={{ background: t.surface, borderBottom: `1px solid ${t.border}` }}>
+                  <Avatar p={activePartner} size={34} />
+                  <button onClick={() => setShowPartnerProfile(prev => !prev)} className="flex-1 text-left hover:opacity-70 transition-opacity">
+                    <p className="font-semibold text-sm" style={{ color: t.text }}>{activePartner?.nickname || '알 수 없음'}</p>
+                    {activePartner?.status_message && <p className="text-xs" style={{ color: t.muted, fontSize: 11 }}>{activePartner.status_message}</p>}
+                  </button>
+                  <button
+                    onClick={() => setShowPartnerProfile(prev => !prev)}
+                    className="w-8 h-8 rounded-xl flex items-center justify-center transition-all text-sm"
+                    style={{ background: showPartnerProfile ? t.accentLight : 'transparent', color: showPartnerProfile ? t.accentText : t.muted }}
+                  >👤</button>
+                </div>
+
+                <div className="flex-1 overflow-y-auto px-6 py-4">
+                  {mounted && renderChatMessages()}
+                  <div ref={bottomRef} />
+                </div>
+
+                <div className="flex-shrink-0 flex gap-3 items-end px-6 py-4" style={{ background: t.surface, borderTop: `1px solid ${t.border}` }}>
+                  <textarea
+                    ref={textareaRef}
+                    value={chatInput}
+                    onChange={(e) => { setChatInput(e.target.value); e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px' }}
+                    onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage() } }}
+                    placeholder="메시지를 입력하세요..."
+                    rows={1}
+                    className="flex-1 resize-none rounded-2xl px-4 py-2.5 text-sm outline-none"
+                    style={{ background: t.inputBg, border: `1px solid ${t.inputBorder}`, color: t.text, maxHeight: '120px' }}
+                  />
+                  <button onClick={sendMessage} disabled={!chatInput.trim() || chatSending}
+                    className="w-10 h-10 rounded-full flex items-center justify-center text-white flex-shrink-0 disabled:opacity-30"
+                    style={{ background: chatInput.trim() ? t.accent : t.muted }}>↑</button>
+                </div>
               </div>
 
-              {/* 메시지 */}
-              <div className="flex-1 overflow-y-auto px-6 py-4">
-                {mounted && renderChatMessages()}
-                <div ref={bottomRef} />
-              </div>
-
-              {/* 입력창 */}
-              <div className="flex-shrink-0 flex gap-3 items-end px-6 py-4" style={{ background: t.surface, borderTop: `1px solid ${t.border}` }}>
-                <textarea
-                  ref={textareaRef}
-                  value={chatInput}
-                  onChange={(e) => { setChatInput(e.target.value); e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px' }}
-                  onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage() } }}
-                  placeholder="메시지를 입력하세요..."
-                  rows={1}
-                  className="flex-1 resize-none rounded-2xl px-4 py-2.5 text-sm outline-none"
-                  style={{ background: t.inputBg, border: `1px solid ${t.inputBorder}`, color: t.text, maxHeight: '120px' }}
-                />
-                <button onClick={sendMessage} disabled={!chatInput.trim() || chatSending}
-                  className="w-10 h-10 rounded-full flex items-center justify-center text-white flex-shrink-0 disabled:opacity-30"
-                  style={{ background: chatInput.trim() ? t.accent : t.muted }}>↑</button>
-              </div>
+              {/* 프로필 사이드패널 */}
+              {showPartnerProfile && activePartner && (
+                <div className="flex-shrink-0 flex flex-col overflow-y-auto" style={{ width: 260, borderLeft: `1px solid ${t.border}`, background: t.surface }}>
+                  <div className="relative h-28 flex-shrink-0" style={{ background: 'linear-gradient(135deg, #a78bfa, #7c3aed)' }}>
+                    <button onClick={() => setShowPartnerProfile(false)} className="absolute top-3 right-3 w-7 h-7 rounded-full flex items-center justify-center text-xs" style={{ background: 'rgba(255,255,255,0.2)', color: 'white' }}>✕</button>
+                  </div>
+                  <div className="px-5 pb-6 flex flex-col items-center text-center -mt-9">
+                    <Avatar p={activePartner} size={72} />
+                    <h3 className="text-base font-bold mt-3 mb-1" style={{ color: t.text }}>{activePartner.nickname}</h3>
+                    {activePartner.status_message
+                      ? <p className="text-xs leading-relaxed" style={{ color: t.muted }}>{activePartner.status_message}</p>
+                      : <p className="text-xs" style={{ color: t.label }}>상태 메시지 없음</p>
+                    }
+                    <button onClick={() => setShowPartnerProfile(false)} className="mt-6 w-full py-2.5 rounded-xl text-sm font-medium text-white" style={{ background: t.accent }}>메시지 보내기</button>
+                  </div>
+                </div>
+              )}
             </>
           ) : (
             <div className="flex-1 flex flex-col items-center justify-center gap-3">

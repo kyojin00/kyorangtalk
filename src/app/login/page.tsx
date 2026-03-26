@@ -13,7 +13,7 @@ export default async function LoginPage() {
         <h2 className="text-2xl font-bold mb-2" style={{ color: 'var(--purple-dark)' }}>교랑톡</h2>
         <p className="text-sm" style={{ color: 'var(--muted)' }}>교랑 계정으로 로그인하면 익명 채팅을 시작할 수 있어요</p>
       </div>
-      <a href="https://kyorang.ai.kr/login" className="px-8 py-4 rounded-full text-white font-medium transition-opacity hover:opacity-80" style={{ background: 'var(--purple)' }}>교랑으로 로그인하기</a>
+      <a href="https://kyorang.ai.kr/login?next=https://talk.kyorang.com" className="px-8 py-4 rounded-full text-white font-medium transition-opacity hover:opacity-80" style={{ background: 'var(--purple)' }}>교랑으로 로그인하기</a>
       <p className="text-xs" style={{ color: 'var(--muted)' }}>교랑 계정이 없으신가요? <a href="https://kyorang.ai.kr/signup" style={{ color: 'var(--purple)' }}>회원가입</a></p>
     </div>
   )

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import Image from 'next/image'
@@ -9,9 +9,9 @@ interface Profile { id: string; nickname: string; avatar_url?: string | null; st
 interface Friend { id: string; requester_id: string; receiver_id: string; status: string }
 interface Room { id: string; user1_id: string; user2_id: string; last_message: string | null; last_message_at: string | null; updated_at: string }
 
-const Avatar = ({ p, size = 40 }: { p: Profile | null | undefined; size?: number }) => (
-  <div className="rounded-full overflow-hidden flex items-center justify-center font-bold text-white flex-shrink-0"
-    style={{ width: size, height: size, background: 'linear-gradient(135deg, #a78bfa, #7c3aed)', fontSize: size * 0.38, position: 'relative' }}>
+const Avatar = ({ p, size = 40, isDark }: { p: Profile | null | undefined; size?: number; isDark: boolean }) => (
+  <div className="rounded-full overflow-hidden flex items-center justify-center font-bold flex-shrink-0"
+    style={{ width: size, height: size, background: 'linear-gradient(135deg, #a78bfa, #7c3aed)', fontSize: size * 0.38, position: 'relative', color: 'white' }}>
     {p?.avatar_url
       ? <Image src={p.avatar_url} alt="" fill style={{ objectFit: 'cover' }} />
       : <span>{p?.nickname?.[0] || '?'}</span>}
@@ -28,13 +28,44 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
 }) {
   const router = useRouter()
   const supabase = createClient()
-  const [tab, setTab] = useState<'friends' | 'chats'>('friends')
+  const [tab, setTab] = useState<'friends' | 'chats' | 'settings'>('friends')
+  const [isDark, setIsDark] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<Profile[]>([])
   const [searching, setSearching] = useState(false)
   const [friendList, setFriendList] = useState(friends)
   const [pendingList, setPendingList] = useState(pending)
   const [pMap, setPMap] = useState(profileMap)
+
+  useEffect(() => {
+    const saved = localStorage.getItem('kyorangtalk-theme')
+    if (saved === 'dark') setIsDark(true)
+  }, [])
+
+  const toggleTheme = (dark: boolean) => {
+    setIsDark(dark)
+    localStorage.setItem('kyorangtalk-theme', dark ? 'dark' : 'light')
+  }
+
+  // 테마 토큰
+  const t = {
+    bg: isDark ? '#0f0f14' : '#f7f4ff',
+    surface: isDark ? '#1a1a24' : '#ffffff',
+    surfaceHover: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(108,92,231,0.04)',
+    border: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(108,92,231,0.1)',
+    borderSub: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(108,92,231,0.06)',
+    text: isDark ? '#e2d9f3' : '#2A2035',
+    muted: isDark ? '#5a5a6e' : '#9B8FA8',
+    label: isDark ? '#4a4a5e' : '#c4b8d4',
+    accent: '#7c3aed',
+    accentLight: isDark ? 'rgba(124,58,237,0.2)' : 'rgba(124,58,237,0.08)',
+    accentText: isDark ? '#a78bfa' : '#7c3aed',
+    accentBorder: isDark ? 'rgba(124,58,237,0.3)' : 'rgba(124,58,237,0.2)',
+    inputBg: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(108,92,231,0.05)',
+    inputBorder: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(108,92,231,0.15)',
+    tabActive: isDark ? '#a78bfa' : '#7c3aed',
+    tabInactive: isDark ? '#5a5a6e' : '#9B8FA8',
+  }
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
@@ -105,29 +136,32 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
   const formatTime = (dateStr: string) => {
     const d = new Date(dateStr)
     const now = new Date()
-    const diff = now.getTime() - d.getTime()
-    if (diff < 86400000 && d.getDate() === now.getDate()) return d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
-    if (diff < 172800000) return '어제'
+    if (d.toDateString() === now.toDateString()) return d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
+    const yesterday = new Date(); yesterday.setDate(now.getDate() - 1)
+    if (d.toDateString() === yesterday.toDateString()) return '어제'
     return d.toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' })
   }
 
+  const tabs = [
+    { key: 'friends', label: '친구', badge: pendingList.length },
+    { key: 'chats', label: '채팅', badge: 0 },
+    { key: 'settings', label: '설정', badge: 0 },
+  ] as const
+
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: '#0f0f14', fontFamily: "'Noto Sans KR', sans-serif" }}>
+    <div className="min-h-screen flex flex-col" style={{ background: t.bg }}>
 
       {/* 헤더 */}
-      <header className="sticky top-0 z-50" style={{ background: 'rgba(15,15,20,0.95)', backdropFilter: 'blur(20px)', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-        <div className="max-w-lg mx-auto px-5 h-14 flex items-center justify-between">
-          <span className="text-base font-bold tracking-tight" style={{ color: '#e2d9f3' }}>교랑톡</span>
-          <button onClick={handleLogout} className="text-xs px-3 py-1.5 rounded-full transition-opacity hover:opacity-60" style={{ color: '#7c7c8a', border: '1px solid rgba(255,255,255,0.08)' }}>로그아웃</button>
+      <header className="sticky top-0 z-50" style={{ background: isDark ? 'rgba(15,15,20,0.95)' : 'rgba(247,244,255,0.95)', backdropFilter: 'blur(20px)', borderBottom: `1px solid ${t.border}` }}>
+        <div className="max-w-lg mx-auto px-5 h-14 flex items-center">
+          <span className="text-base font-bold tracking-tight" style={{ color: t.text }}>교랑톡</span>
         </div>
-
-        {/* 탭 */}
         <div className="max-w-lg mx-auto px-5 flex gap-6">
-          {(['friends', 'chats'] as const).map(t => (
-            <button key={t} onClick={() => setTab(t)} className="py-3 text-sm font-medium relative transition-all" style={{ color: tab === t ? '#a78bfa' : '#5a5a6e', borderBottom: tab === t ? '2px solid #a78bfa' : '2px solid transparent' }}>
-              {t === 'friends' ? '친구' : '채팅'}
-              {t === 'friends' && pendingList.length > 0 && (
-                <span className="ml-1.5 text-xs px-1.5 py-0.5 rounded-full font-bold" style={{ background: '#7c3aed', color: 'white', fontSize: '10px' }}>{pendingList.length}</span>
+          {tabs.map(({ key, label, badge }) => (
+            <button key={key} onClick={() => setTab(key)} className="py-3 text-sm font-medium relative transition-all" style={{ color: tab === key ? t.tabActive : t.tabInactive, borderBottom: tab === key ? `2px solid ${t.tabActive}` : '2px solid transparent' }}>
+              {label}
+              {badge > 0 && (
+                <span className="ml-1.5 text-xs px-1.5 py-0.5 rounded-full font-bold text-white" style={{ background: '#ef4444', fontSize: 10 }}>{badge}</span>
               )}
             </button>
           ))}
@@ -140,20 +174,20 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
         {tab === 'friends' && (
           <div>
             {/* 내 프로필 */}
-            <button onClick={() => router.push('/profile')} className="w-full flex items-center gap-4 px-5 py-5 transition-opacity hover:opacity-70 text-left" style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+            <button onClick={() => router.push('/profile')} className="w-full flex items-center gap-4 px-5 py-5 transition-opacity hover:opacity-70 text-left" style={{ borderBottom: `1px solid ${t.border}` }}>
               <div className="relative">
-                <Avatar p={profile} size={52} />
-                <div className="absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full" style={{ background: '#22c55e', border: '2px solid #0f0f14' }} />
+                <Avatar p={profile} size={52} isDark={isDark} />
+                <div className="absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full" style={{ background: '#22c55e', border: `2px solid ${t.bg}` }} />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="font-semibold text-sm" style={{ color: '#e2d9f3' }}>{profile.nickname}</p>
-                <p className="text-xs mt-0.5 truncate" style={{ color: '#5a5a6e' }}>{profile.status_message || '상태 메시지를 설정해보세요'}</p>
+                <p className="font-semibold text-sm" style={{ color: t.text }}>{profile.nickname}</p>
+                <p className="text-xs mt-0.5 truncate" style={{ color: t.muted }}>{profile.status_message || '상태 메시지를 설정해보세요'}</p>
               </div>
-              <span style={{ color: '#3d3d52', fontSize: 12 }}>✏️</span>
+              <span className="text-xs" style={{ color: t.muted }}>✏️</span>
             </button>
 
             {/* 검색 */}
-            <div className="px-5 py-3" style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+            <div className="px-5 py-3" style={{ borderBottom: `1px solid ${t.border}` }}>
               <div className="flex gap-2">
                 <input
                   type="text"
@@ -162,44 +196,44 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
                   onChange={(e) => setSearchQuery(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
                   className="flex-1 px-4 py-2.5 rounded-xl text-sm outline-none"
-                  style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', color: '#e2d9f3' }}
+                  style={{ background: t.inputBg, border: `1px solid ${t.inputBorder}`, color: t.text }}
                 />
-                <button onClick={handleSearch} disabled={searching} className="px-4 py-2.5 rounded-xl text-sm font-medium transition-opacity hover:opacity-80" style={{ background: '#7c3aed', color: 'white' }}>
+                <button onClick={handleSearch} disabled={searching} className="px-4 py-2.5 rounded-xl text-sm font-medium transition-opacity hover:opacity-80" style={{ background: t.accent, color: 'white' }}>
                   {searching ? '...' : '검색'}
                 </button>
               </div>
 
               {searchResults.length > 0 && (
-                <div className="mt-3 rounded-xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.06)' }}>
+                <div className="mt-3 rounded-xl overflow-hidden" style={{ border: `1px solid ${t.border}` }}>
                   {searchResults.map((r, i) => (
-                    <div key={r.id} className="flex items-center justify-between px-4 py-3" style={{ background: 'rgba(255,255,255,0.03)', borderTop: i > 0 ? '1px solid rgba(255,255,255,0.04)' : 'none' }}>
+                    <div key={r.id} className="flex items-center justify-between px-4 py-3" style={{ background: t.surface, borderTop: i > 0 ? `1px solid ${t.borderSub}` : 'none' }}>
                       <div className="flex items-center gap-3">
-                        <Avatar p={r} size={36} />
+                        <Avatar p={r} size={36} isDark={isDark} />
                         <div>
-                          <p className="text-sm font-medium" style={{ color: '#e2d9f3' }}>{r.nickname}</p>
-                          {r.status_message && <p className="text-xs" style={{ color: '#5a5a6e' }}>{r.status_message}</p>}
+                          <p className="text-sm font-medium" style={{ color: t.text }}>{r.nickname}</p>
+                          {r.status_message && <p className="text-xs" style={{ color: t.muted }}>{r.status_message}</p>}
                         </div>
                       </div>
-                      <button onClick={() => sendFriendRequest(r.id)} className="text-xs px-3 py-1.5 rounded-full font-medium" style={{ background: 'rgba(124,58,237,0.2)', color: '#a78bfa', border: '1px solid rgba(124,58,237,0.3)' }}>추가</button>
+                      <button onClick={() => sendFriendRequest(r.id)} className="text-xs px-3 py-1.5 rounded-full font-medium" style={{ background: t.accentLight, color: t.accentText, border: `1px solid ${t.accentBorder}` }}>추가</button>
                     </div>
                   ))}
                 </div>
               )}
             </div>
 
-            {/* 받은 요청 */}
+            {/* 받은 친구 요청 */}
             {pendingList.length > 0 && (
               <div>
-                <p className="px-5 pt-4 pb-2 text-xs font-semibold tracking-wider uppercase" style={{ color: '#4a4a5e' }}>받은 친구 요청</p>
+                <p className="px-5 pt-4 pb-2 text-xs font-semibold tracking-wider uppercase" style={{ color: t.label }}>받은 친구 요청</p>
                 {pendingList.map((req) => (
-                  <div key={req.id} className="flex items-center justify-between px-5 py-3" style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                  <div key={req.id} className="flex items-center justify-between px-5 py-3" style={{ borderBottom: `1px solid ${t.borderSub}` }}>
                     <div className="flex items-center gap-3">
-                      <Avatar p={pMap[req.requester_id]} size={40} />
-                      <p className="text-sm font-medium" style={{ color: '#e2d9f3' }}>{pMap[req.requester_id]?.nickname || '알 수 없음'}</p>
+                      <Avatar p={pMap[req.requester_id]} size={40} isDark={isDark} />
+                      <p className="text-sm font-medium" style={{ color: t.text }}>{pMap[req.requester_id]?.nickname || '알 수 없음'}</p>
                     </div>
                     <div className="flex gap-2">
-                      <button onClick={() => acceptFriend(req.id)} className="text-xs px-3 py-1.5 rounded-full font-medium" style={{ background: '#7c3aed', color: 'white' }}>수락</button>
-                      <button onClick={() => rejectFriend(req.id)} className="text-xs px-3 py-1.5 rounded-full" style={{ background: 'rgba(255,255,255,0.05)', color: '#5a5a6e' }}>거절</button>
+                      <button onClick={() => acceptFriend(req.id)} className="text-xs px-3 py-1.5 rounded-full font-medium text-white" style={{ background: t.accent }}>수락</button>
+                      <button onClick={() => rejectFriend(req.id)} className="text-xs px-3 py-1.5 rounded-full" style={{ background: t.inputBg, color: t.muted }}>거절</button>
                     </div>
                   </div>
                 ))}
@@ -209,20 +243,20 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
             {/* 친구 목록 */}
             {friendList.length > 0 && (
               <div>
-                <p className="px-5 pt-4 pb-2 text-xs font-semibold tracking-wider uppercase" style={{ color: '#4a4a5e' }}>친구 {friendList.length}명</p>
+                <p className="px-5 pt-4 pb-2 text-xs font-semibold tracking-wider uppercase" style={{ color: t.label }}>친구 {friendList.length}명</p>
                 {friendList.map((f) => {
                   const fId = getFriendUserId(f)
                   const fp = pMap[fId]
                   return (
-                    <div key={f.id} className="flex items-center justify-between px-5 py-3 transition-opacity hover:opacity-70" style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                    <div key={f.id} className="flex items-center justify-between px-5 py-3 transition-opacity hover:opacity-70" style={{ borderBottom: `1px solid ${t.borderSub}` }}>
                       <div className="flex items-center gap-3">
-                        <Avatar p={fp} size={40} />
+                        <Avatar p={fp} size={40} isDark={isDark} />
                         <div>
-                          <p className="text-sm font-medium" style={{ color: '#e2d9f3' }}>{fp?.nickname || '알 수 없음'}</p>
-                          {fp?.status_message && <p className="text-xs mt-0.5" style={{ color: '#5a5a6e' }}>{fp.status_message}</p>}
+                          <p className="text-sm font-medium" style={{ color: t.text }}>{fp?.nickname || '알 수 없음'}</p>
+                          {fp?.status_message && <p className="text-xs mt-0.5" style={{ color: t.muted }}>{fp.status_message}</p>}
                         </div>
                       </div>
-                      <button onClick={() => startChat(fId)} className="text-xs px-3 py-1.5 rounded-full font-medium" style={{ background: 'rgba(124,58,237,0.2)', color: '#a78bfa', border: '1px solid rgba(124,58,237,0.3)' }}>채팅</button>
+                      <button onClick={() => startChat(fId)} className="text-xs px-3 py-1.5 rounded-full font-medium" style={{ background: t.accentLight, color: t.accentText, border: `1px solid ${t.accentBorder}` }}>채팅</button>
                     </div>
                   )
                 })}
@@ -232,7 +266,7 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
             {friendList.length === 0 && pendingList.length === 0 && (
               <div className="text-center py-20">
                 <p className="text-4xl mb-4">🐱</p>
-                <p className="text-sm" style={{ color: '#4a4a5e' }}>아직 친구가 없어요<br />닉네임으로 검색해보세요</p>
+                <p className="text-sm" style={{ color: t.muted }}>아직 친구가 없어요<br />닉네임으로 검색해보세요</p>
               </div>
             )}
           </div>
@@ -244,25 +278,70 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
             {rooms.length === 0 ? (
               <div className="text-center py-20">
                 <p className="text-4xl mb-4">💬</p>
-                <p className="text-sm" style={{ color: '#4a4a5e' }}>아직 채팅이 없어요<br />친구 탭에서 채팅을 시작해보세요</p>
+                <p className="text-sm" style={{ color: t.muted }}>아직 채팅이 없어요<br />친구 탭에서 채팅을 시작해보세요</p>
               </div>
             ) : (
               rooms.map((room) => {
                 const partner = getPartner(room)
                 return (
-                  <button key={room.id} onClick={() => router.push(`/chat/${room.id}`)} className="w-full flex items-center gap-4 px-5 py-4 text-left transition-opacity hover:opacity-70" style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                    <Avatar p={partner} size={48} />
+                  <button key={room.id} onClick={() => router.push(`/chat/${room.id}`)} className="w-full flex items-center gap-4 px-5 py-4 text-left transition-opacity hover:opacity-70" style={{ borderBottom: `1px solid ${t.borderSub}` }}>
+                    <Avatar p={partner} size={48} isDark={isDark} />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between mb-1">
-                        <span className="font-semibold text-sm" style={{ color: '#e2d9f3' }}>{partner?.nickname || '알 수 없음'}</span>
-                        {room.last_message_at && <span className="text-xs" style={{ color: '#4a4a5e' }}>{formatTime(room.last_message_at)}</span>}
+                        <span className="font-semibold text-sm" style={{ color: t.text }}>{partner?.nickname || '알 수 없음'}</span>
+                        {room.last_message_at && <span className="text-xs" style={{ color: t.muted }}>{formatTime(room.last_message_at)}</span>}
                       </div>
-                      <p className="text-xs truncate" style={{ color: '#5a5a6e' }}>{room.last_message || '대화를 시작해보세요'}</p>
+                      <p className="text-xs truncate" style={{ color: t.muted }}>{room.last_message || '대화를 시작해보세요'}</p>
                     </div>
                   </button>
                 )
               })
             )}
+          </div>
+        )}
+
+        {/* 설정 탭 */}
+        {tab === 'settings' && (
+          <div className="p-5 space-y-4">
+            {/* 내 프로필 */}
+            <button onClick={() => router.push('/profile')} className="w-full flex items-center gap-4 p-4 rounded-2xl text-left transition-opacity hover:opacity-70" style={{ background: t.surface, border: `1px solid ${t.border}` }}>
+              <Avatar p={profile} size={48} isDark={isDark} />
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-sm" style={{ color: t.text }}>{profile.nickname}</p>
+                <p className="text-xs mt-0.5 truncate" style={{ color: t.muted }}>{profile.status_message || '상태 메시지 없음'}</p>
+              </div>
+              <span className="text-xs" style={{ color: t.muted }}>✏️</span>
+            </button>
+
+            {/* 테마 설정 */}
+            <div className="rounded-2xl overflow-hidden" style={{ background: t.surface, border: `1px solid ${t.border}` }}>
+              <p className="px-4 py-3 text-xs font-semibold tracking-wider uppercase" style={{ color: t.label, borderBottom: `1px solid ${t.borderSub}` }}>테마</p>
+              <div className="flex">
+                <button
+                  onClick={() => toggleTheme(false)}
+                  className="flex-1 flex items-center justify-center gap-2 py-4 transition-all"
+                  style={{ background: !isDark ? 'rgba(124,58,237,0.1)' : 'transparent', borderRight: `1px solid ${t.borderSub}` }}
+                >
+                  <span className="text-lg">☀️</span>
+                  <span className="text-sm font-medium" style={{ color: !isDark ? t.accentText : t.muted }}>라이트</span>
+                  {!isDark && <span className="w-1.5 h-1.5 rounded-full" style={{ background: t.accent }} />}
+                </button>
+                <button
+                  onClick={() => toggleTheme(true)}
+                  className="flex-1 flex items-center justify-center gap-2 py-4 transition-all"
+                  style={{ background: isDark ? 'rgba(124,58,237,0.1)' : 'transparent' }}
+                >
+                  <span className="text-lg">🌙</span>
+                  <span className="text-sm font-medium" style={{ color: isDark ? t.accentText : t.muted }}>다크</span>
+                  {isDark && <span className="w-1.5 h-1.5 rounded-full" style={{ background: t.accent }} />}
+                </button>
+              </div>
+            </div>
+
+            {/* 로그아웃 */}
+            <button onClick={handleLogout} className="w-full py-4 rounded-2xl text-sm font-medium transition-opacity hover:opacity-70" style={{ background: t.surface, color: '#ef4444', border: `1px solid ${t.border}` }}>
+              로그아웃
+            </button>
           </div>
         )}
       </div>

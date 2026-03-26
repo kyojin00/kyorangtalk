@@ -15,12 +15,13 @@ export default async function ChatPage({ params }: { params: Promise<{ roomId: s
     .eq('id', roomId)
     .single()
 
-  if (error || !room) {
-    console.error('room fetch error:', error?.message, 'roomId:', roomId, 'userId:', user.id)
-    redirect('/')
-  }
+  console.log('room:', JSON.stringify(room), 'error:', error?.message, 'userId:', user.id)
+
+  if (error || !room) redirect('/')
 
   const isMyRoom = room.user1_id === user.id || room.user2_id === user.id
+  console.log('isMyRoom:', isMyRoom, 'user1_id:', room.user1_id, 'user2_id:', room.user2_id)
+
   if (!isMyRoom) redirect('/')
 
   const { data: messages } = await supabase

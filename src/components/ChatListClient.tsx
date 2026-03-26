@@ -34,6 +34,11 @@ export default function ChatListClient({ initialRooms, userId }: { initialRooms:
     return () => { supabase.removeChannel(channel) }
   }, [])
 
+  const handleLogout = async () => {
+    await supabase.auth.signOut()
+    router.push('/login')
+  }
+
   const startMatching = async () => {
     setMatching(true)
     try {
@@ -94,10 +99,19 @@ export default function ChatListClient({ initialRooms, userId }: { initialRooms:
   return (
     <div className="min-h-screen" style={{ background: 'var(--bg)' }}>
       <header style={{ background: 'var(--surface)', borderBottom: '1px solid rgba(108,92,231,0.1)' }} className="sticky top-0 z-50">
-        <div className="max-w-lg mx-auto px-4 h-14 flex items-center gap-2">
-          <span className="text-2xl">🐱</span>
-          <h1 className="text-lg font-bold" style={{ color: 'var(--purple-dark)' }}>교랑톡</h1>
-          <span className="text-xs px-2 py-0.5 rounded-full ml-1" style={{ background: 'var(--purple-light)', color: 'var(--purple)' }}>익명 채팅</span>
+        <div className="max-w-lg mx-auto px-4 h-14 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-2xl">🐱</span>
+            <h1 className="text-lg font-bold" style={{ color: 'var(--purple-dark)' }}>교랑톡</h1>
+            <span className="text-xs px-2 py-0.5 rounded-full ml-1" style={{ background: 'var(--purple-light)', color: 'var(--purple)' }}>익명 채팅</span>
+          </div>
+          <button
+            onClick={handleLogout}
+            className="text-xs px-3 py-1.5 rounded-full transition-opacity hover:opacity-70"
+            style={{ color: 'var(--muted)', background: 'var(--bg)', border: '1px solid rgba(108,92,231,0.15)' }}
+          >
+            로그아웃
+          </button>
         </div>
       </header>
 
@@ -128,7 +142,7 @@ export default function ChatListClient({ initialRooms, userId }: { initialRooms:
             <div className="space-y-2">
               {rooms.map((room) => (
                 <button key={room.id} onClick={() => router.push(`/chat/${room.id}`)} className="w-full rounded-xl p-4 flex items-center gap-3 hover:opacity-80 transition text-left" style={{ background: 'var(--surface)', border: '1px solid rgba(108,92,231,0.1)' }}>
-                  <div className="w-10 h-10 rounded-full flex items-center justify-center text-lg flex-shrink-0" style={{ background: 'var(--purple-light)' }}>👤</div>
+                  <div className="w-10 h-10 rounded-full flex items-center justify-center text-lg shrink-0" style={{ background: 'var(--purple-light)' }}>👤</div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between">
                       <span className="font-medium text-sm" style={{ color: 'var(--text)' }}>{getPartnerNickname(room)}</span>

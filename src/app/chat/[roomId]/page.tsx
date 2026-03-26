@@ -23,13 +23,13 @@ export default async function ChatPage({ params }: { params: Promise<{ roomId: s
 
   const { data: myProfile } = await supabase
     .from('kyorangtalk_profiles')
-    .select('nickname')
+    .select('*')
     .eq('id', user.id)
     .single()
 
   const { data: partnerProfile } = await supabase
     .from('kyorangtalk_profiles')
-    .select('nickname')
+    .select('*')
     .eq('id', partnerId)
     .single()
 
@@ -44,8 +44,8 @@ export default async function ChatPage({ params }: { params: Promise<{ roomId: s
       room={room}
       initialMessages={messages || []}
       userId={user.id}
-      myNickname={myProfile?.nickname || '나'}
-      partnerNickname={partnerProfile?.nickname || '상대방'}
+      myProfile={myProfile || { id: user.id, nickname: '나', avatar_url: null, status_message: null }}
+      partnerProfile={partnerProfile || { id: partnerId, nickname: '상대방', avatar_url: null, status_message: null }}
     />
   )
 }

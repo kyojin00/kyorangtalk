@@ -3,14 +3,21 @@
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import Image from 'next/image'
 
 interface Message {
   id: string
   room_id: string
   sender_id: string
   content: string
-  is_read: boolean
   created_at: string
+}
+
+interface Profile {
+  id: string
+  nickname: string
+  avatar_url: string | null
+  status_message: string | null
 }
 
 interface Room {
@@ -19,12 +26,19 @@ interface Room {
   user2_id: string
 }
 
-export default function ChatRoom({ room, initialMessages, userId, myNickname, partnerNickname }: {
+const Avatar = ({ p, size = 36 }: { p: Profile; size?: number }) => (
+  <div className="rounded-full overflow-hidden flex items-center justify-center font-bold flex-shrink-0"
+    style={{ width: size, height: size, background: 'linear-gradient(135deg, #a78bfa, #7c3aed)', fontSize: size * 0.38, position: 'relative', color: 'white' }}>
+    {p.avatar_url ? <Image src={p.avatar_url} alt="" fill style={{ objectFit: 'cover' }} /> : <span>{p.nickname[0]}</span>}
+  </div>
+)
+
+export default function ChatRoom({ room, initialMessages, userId, myProfile, partnerProfile }: {
   room: Room
   initialMessages: Message[]
   userId: string
-  myNickname: string
-  partnerNickname: string
+  myProfile: Profile
+  partnerProfile: Profile
 }) {
   const router = useRouter()
   const supabase = createClient()
@@ -33,6 +47,7 @@ export default function ChatRoom({ room, initialMessages, userId, myNickname, pa
   const [sending, setSending] = useState(false)
   const [mounted, setMounted] = useState(false)
   const [isDark, setIsDark] = useState(false)
+  const [showProfile, setShowProfile] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -47,16 +62,9 @@ export default function ChatRoom({ room, initialMessages, userId, myNickname, pa
   }, [messages])
 
   useEffect(() => {
-    const channel = supabase
-      .channel(`room:${room.id}`)
-      .on('postgres_changes', {
-        event: 'INSERT',
-        schema: 'public',
-        table: 'kyorangtalk_messages',
-        filter: `room_id=eq.${room.id}`,
-      }, (payload) => {
-        setMessages((prev) => [...prev, payload.new as Message])
-      })
+    const channel = supabase.channel(`room:${room.id}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'kyorangtalk_messages', filter: `room_id=eq.${room.id}` },
+        (payload) => setMessages((prev) => [...prev, payload.new as Message]))
       .subscribe()
     return () => { supabase.removeChannel(channel) }
   }, [room.id])
@@ -68,9 +76,7 @@ export default function ChatRoom({ room, initialMessages, userId, myNickname, pa
     setInput('')
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
     const { error } = await supabase.from('kyorangtalk_messages').insert({ room_id: room.id, sender_id: userId, content })
-    if (!error) {
-      await supabase.from('kyorangtalk_rooms').update({ last_message: content, last_message_at: new Date().toISOString() }).eq('id', room.id)
-    }
+    if (!error) await supabase.from('kyorangtalk_rooms').update({ last_message: content, last_message_at: new Date().toISOString() }).eq('id', room.id)
     setSending(false)
   }
 
@@ -84,11 +90,10 @@ export default function ChatRoom({ room, initialMessages, userId, myNickname, pa
     new Date(dateStr).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
 
   const formatDate = (dateStr: string) => {
-    const date = new Date(dateStr)
-    const now = new Date()
-    const dateOnly = new Date(date.getFullYear(), date.getMonth(), date.getDate())
-    const todayOnly = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-    const diff = todayOnly.getTime() - dateOnly.getTime()
+    const date = new Date(dateStr), now = new Date()
+    const d0 = new Date(date.getFullYear(), date.getMonth(), date.getDate())
+    const n0 = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    const diff = n0.getTime() - d0.getTime()
     if (diff === 0) return '오늘'
     if (diff === 86400000) return '어제'
     return date.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })
@@ -111,15 +116,15 @@ export default function ChatRoom({ room, initialMessages, userId, myNickname, pa
     border: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(108,92,231,0.1)',
     text: isDark ? '#e2d9f3' : '#2A2035',
     muted: isDark ? '#5a5a6e' : '#9B8FA8',
+    accent: '#7c3aed',
     myBubble: isDark ? '#6d28d9' : '#7c3aed',
     theirBubble: isDark ? '#1e1e2e' : '#ffffff',
     theirBorder: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(108,92,231,0.12)',
     datePill: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(108,92,231,0.07)',
-    datePillText: isDark ? '#5a5a6e' : '#9B8FA8',
     inputBg: isDark ? 'rgba(255,255,255,0.05)' : '#ffffff',
     inputBorder: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(108,92,231,0.15)',
     headerBg: isDark ? 'rgba(15,15,20,0.95)' : 'rgba(255,255,255,0.95)',
-    accent: '#7c3aed',
+    overlay: 'rgba(0,0,0,0.5)',
   }
 
   const renderMessages = () => {
@@ -131,23 +136,34 @@ export default function ChatRoom({ room, initialMessages, userId, myNickname, pa
       if (showDate) {
         elements.push(
           <div key={`date-${msg.id}`} className="flex items-center justify-center my-6">
-            <span className="text-xs px-4 py-1.5 rounded-full" style={{ background: t.datePill, color: t.datePillText }}>
+            <span className="text-xs px-4 py-1.5 rounded-full" style={{ background: t.datePill, color: t.muted }}>
               {formatDate(msg.created_at)}
             </span>
           </div>
         )
       }
-
       const isMine = msg.sender_id === userId
       const isLastInGroup = !next || !isSameMinute(msg.created_at, next.created_at) || next.sender_id !== msg.sender_id
       const isFirstInGroup = !prev || prev.sender_id !== msg.sender_id || !isSameMinute(prev.created_at, msg.created_at)
-      const isGrouped = !isFirstInGroup
 
       elements.push(
-        <div key={msg.id} className={`flex ${isMine ? 'justify-end' : 'justify-start'} ${isGrouped ? 'mt-0.5' : 'mt-3'}`}>
-          <div className={`flex flex-col ${isMine ? 'items-end' : 'items-start'} max-w-[72%]`}>
-            <div
-              className="px-4 py-2.5 text-sm leading-relaxed"
+        <div key={msg.id} className={`flex items-end gap-2 ${isMine ? 'justify-end' : 'justify-start'} ${!isFirstInGroup ? 'mt-0.5' : 'mt-3'}`}>
+          {/* 상대방 아바타 */}
+          {!isMine && (
+            <div style={{ width: 30, flexShrink: 0 }}>
+              {isLastInGroup && (
+                <button onClick={() => setShowProfile(true)}>
+                  <Avatar p={partnerProfile} size={30} />
+                </button>
+              )}
+            </div>
+          )}
+
+          <div className={`flex flex-col ${isMine ? 'items-end' : 'items-start'} max-w-[68%]`}>
+            {!isMine && isFirstInGroup && (
+              <p className="text-xs mb-1 px-1" style={{ color: t.muted }}>{partnerProfile.nickname}</p>
+            )}
+            <div className="px-4 py-2.5 text-sm leading-relaxed"
               style={{
                 background: isMine ? t.myBubble : t.theirBubble,
                 color: isMine ? 'white' : t.text,
@@ -155,9 +171,7 @@ export default function ChatRoom({ room, initialMessages, userId, myNickname, pa
                 borderRadius: isMine
                   ? `18px 18px ${isLastInGroup ? '4px' : '18px'} 18px`
                   : `18px 18px 18px ${isLastInGroup ? '4px' : '18px'}`,
-                boxShadow: isMine ? 'none' : isDark ? 'none' : '0 1px 4px rgba(108,92,231,0.06)',
-              }}
-            >
+              }}>
               {msg.content}
             </div>
             {isLastInGroup && (
@@ -174,27 +188,30 @@ export default function ChatRoom({ room, initialMessages, userId, myNickname, pa
 
   return (
     <div className="flex flex-col h-screen max-w-lg mx-auto" style={{ background: t.bg }}>
+
+      {/* 헤더 */}
       <header className="flex-shrink-0" style={{ background: t.headerBg, backdropFilter: 'blur(20px)', borderBottom: `1px solid ${t.border}` }}>
         <div className="px-4 h-14 flex items-center gap-3">
-          <button
-            onClick={() => router.push('/')}
-            className="w-8 h-8 flex items-center justify-center rounded-full transition-opacity hover:opacity-60"
-            style={{ color: t.muted }}
-          >
-            ←
+          <button onClick={() => router.push('/')} className="w-8 h-8 flex items-center justify-center rounded-full transition-opacity hover:opacity-60" style={{ color: t.muted }}>←</button>
+          <button onClick={() => setShowProfile(true)} className="flex items-center gap-3 flex-1 text-left hover:opacity-70 transition-opacity">
+            <Avatar p={partnerProfile} size={34} />
+            <div>
+              <p className="font-semibold text-sm" style={{ color: t.text }}>{partnerProfile.nickname}</p>
+              {partnerProfile.status_message && (
+                <p className="text-xs" style={{ color: t.muted, fontSize: 11 }}>{partnerProfile.status_message}</p>
+              )}
+            </div>
           </button>
-          <div className="flex-1">
-            <p className="font-semibold text-sm" style={{ color: t.text }}>{partnerNickname}</p>
-            <p className="text-xs" style={{ color: t.muted, fontSize: 11 }}>나: {myNickname}</p>
-          </div>
         </div>
       </header>
 
+      {/* 메시지 */}
       <div className="flex-1 overflow-y-auto px-4 pb-4">
         {mounted && renderMessages()}
         <div ref={bottomRef} />
       </div>
 
+      {/* 입력창 */}
       <div className="flex-shrink-0 px-4 py-3 flex gap-2 items-end" style={{ background: t.surface, borderTop: `1px solid ${t.border}` }}>
         <textarea
           ref={textareaRef}
@@ -209,12 +226,46 @@ export default function ChatRoom({ room, initialMessages, userId, myNickname, pa
         <button
           onClick={sendMessage}
           disabled={!input.trim() || sending}
-          className="w-10 h-10 rounded-full flex items-center justify-center text-white transition-all flex-shrink-0 disabled:opacity-30"
-          style={{ background: !input.trim() || sending ? t.muted : t.accent }}
-        >
+          className="w-10 h-10 rounded-full flex items-center justify-center text-white flex-shrink-0 disabled:opacity-30"
+          style={{ background: input.trim() ? t.accent : t.muted }}>
           ↑
         </button>
       </div>
+
+      {/* 프로필 모달 */}
+      {showProfile && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center"
+          style={{ background: t.overlay }}
+          onClick={() => setShowProfile(false)}
+        >
+          <div
+            className="w-full max-w-lg rounded-t-3xl overflow-hidden"
+            style={{ background: t.surface }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* 프로필 배경 */}
+            <div className="relative h-32 flex items-end px-6 pb-0" style={{ background: 'linear-gradient(135deg, #a78bfa, #7c3aed)' }}>
+              <div className="absolute top-4 right-4">
+                <button onClick={() => setShowProfile(false)} className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: 'rgba(255,255,255,0.2)', color: 'white', fontSize: 16 }}>✕</button>
+              </div>
+              <div className="relative translate-y-8">
+                <Avatar p={partnerProfile} size={72} />
+              </div>
+            </div>
+
+            {/* 프로필 정보 */}
+            <div className="pt-12 pb-8 px-6">
+              <h2 className="text-xl font-bold mb-1" style={{ color: t.text }}>{partnerProfile.nickname}</h2>
+              {partnerProfile.status_message ? (
+                <p className="text-sm" style={{ color: t.muted }}>{partnerProfile.status_message}</p>
+              ) : (
+                <p className="text-sm" style={{ color: t.muted, opacity: 0.5 }}>상태 메시지 없음</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

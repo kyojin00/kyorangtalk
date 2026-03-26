@@ -129,7 +129,14 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
             <h1 className="text-lg font-bold" style={{ color: 'var(--purple-dark)' }}>교랑톡</h1>
           </div>
           <div className="flex items-center gap-3">
-            <span className="text-sm" style={{ color: 'var(--muted)' }}>{profile.nickname}</span>
+            <button
+              onClick={() => router.push('/profile')}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-full transition-opacity hover:opacity-70"
+              style={{ background: 'var(--bg)', border: '1px solid rgba(108,92,231,0.15)' }}
+            >
+              <span className="text-xs" style={{ color: 'var(--text)' }}>{profile.nickname}</span>
+              <span className="text-xs" style={{ color: 'var(--muted)' }}>✏️</span>
+            </button>
             <button onClick={handleLogout} className="text-xs px-3 py-1.5 rounded-full" style={{ color: 'var(--muted)', background: 'var(--bg)', border: '1px solid rgba(108,92,231,0.15)' }}>로그아웃</button>
           </div>
         </div>

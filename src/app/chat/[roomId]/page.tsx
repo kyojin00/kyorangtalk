@@ -13,10 +13,13 @@ export default async function ChatPage({ params }: { params: Promise<{ roomId: s
     .from('kyorangtalk_rooms')
     .select('*')
     .eq('id', roomId)
-    .or(`user1_id.eq.${user.id},user2_id.eq.${user.id}`)
     .single()
 
   if (!room) notFound()
+
+  // 본인 방인지 확인 (waiting 포함)
+  const isMyRoom = room.user1_id === user.id || room.user2_id === user.id
+  if (!isMyRoom) notFound()
 
   const { data: messages } = await supabase
     .from('kyorangtalk_messages')

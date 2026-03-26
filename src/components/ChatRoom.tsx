@@ -15,7 +15,6 @@ interface Message {
 
 interface Room {
   id: string
-  status: string
   user1_id: string
   user2_id: string
 }
@@ -32,8 +31,11 @@ export default function ChatRoom({ room, initialMessages, userId, myNickname, pa
   const [messages, setMessages] = useState<Message[]>(initialMessages)
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
+  const [mounted, setMounted] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  useEffect(() => { setMounted(true) }, [])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -85,12 +87,12 @@ export default function ChatRoom({ room, initialMessages, userId, myNickname, pa
 
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr)
-    const today = new Date()
-    const yesterday = new Date()
-    yesterday.setDate(today.getDate() - 1)
-
-    if (date.toDateString() === today.toDateString()) return '오늘'
-    if (date.toDateString() === yesterday.toDateString()) return '어제'
+    const now = new Date()
+    const dateOnly = new Date(date.getFullYear(), date.getMonth(), date.getDate())
+    const todayOnly = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    const diff = todayOnly.getTime() - dateOnly.getTime()
+    if (diff === 0) return '오늘'
+    if (diff === 86400000) return '어제'
     return date.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' })
   }
 
@@ -112,15 +114,12 @@ export default function ChatRoom({ room, initialMessages, userId, myNickname, pa
       da.getDate() === db.getDate()
   }
 
-  // 날짜 구분선 + 시간 표시 여부 계산
   const renderMessages = () => {
     const elements: React.ReactNode[] = []
-
     messages.forEach((msg, i) => {
       const prev = messages[i - 1]
       const next = messages[i + 1]
 
-      // 날짜 구분선
       const showDate = !prev || !isSameDay(prev.created_at, msg.created_at)
       if (showDate) {
         elements.push(
@@ -133,8 +132,6 @@ export default function ChatRoom({ room, initialMessages, userId, myNickname, pa
       }
 
       const isMine = msg.sender_id === userId
-
-      // 같은 분, 같은 사람이 연속으로 보낼 때 마지막 메시지만 시간 표시
       const isLastInMinuteGroup =
         !next ||
         !isSameMinute(msg.created_at, next.created_at) ||
@@ -143,13 +140,10 @@ export default function ChatRoom({ room, initialMessages, userId, myNickname, pa
       elements.push(
         <div key={msg.id} className={`flex ${isMine ? 'justify-end' : 'justify-start'} mb-0.5`}>
           <div className={`flex flex-col ${isMine ? 'items-end' : 'items-start'} max-w-[75%]`}>
-            <div
-              className="rounded-2xl px-4 py-2.5 text-sm leading-relaxed"
-              style={isMine
-                ? { background: 'var(--purple)', color: 'white', borderBottomRightRadius: '4px' }
-                : { background: 'var(--surface)', color: 'var(--text)', border: '1px solid rgba(108,92,231,0.1)', borderBottomLeftRadius: '4px' }
-              }
-            >
+            <div className="rounded-2xl px-4 py-2.5 text-sm leading-relaxed" style={isMine
+              ? { background: 'var(--purple)', color: 'white', borderBottomRightRadius: '4px' }
+              : { background: 'var(--surface)', color: 'var(--text)', border: '1px solid rgba(108,92,231,0.1)', borderBottomLeftRadius: '4px' }
+            }>
               {msg.content}
             </div>
             {isLastInMinuteGroup && (
@@ -161,26 +155,23 @@ export default function ChatRoom({ room, initialMessages, userId, myNickname, pa
         </div>
       )
     })
-
     return elements
   }
 
   return (
     <div className="flex flex-col h-screen max-w-lg mx-auto" style={{ background: 'var(--bg)' }}>
       <header className="flex-shrink-0" style={{ background: 'var(--surface)', borderBottom: '1px solid rgba(108,92,231,0.1)' }}>
-        <div className="px-4 h-14 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <button onClick={() => router.push('/')} className="text-lg" style={{ color: 'var(--muted)' }}>←</button>
-            <div>
-              <p className="font-medium text-sm" style={{ color: 'var(--text)' }}>{partnerNickname}</p>
-              <p className="text-xs" style={{ color: 'var(--muted)' }}>나: {myNickname}</p>
-            </div>
+        <div className="px-4 h-14 flex items-center gap-3">
+          <button onClick={() => router.push('/')} className="text-lg" style={{ color: 'var(--muted)' }}>←</button>
+          <div>
+            <p className="font-medium text-sm" style={{ color: 'var(--text)' }}>{partnerNickname}</p>
+            <p className="text-xs" style={{ color: 'var(--muted)' }}>나: {myNickname}</p>
           </div>
         </div>
       </header>
 
       <div className="flex-1 overflow-y-auto p-4" style={{ background: 'var(--bg)' }}>
-        {renderMessages()}
+        {mounted && renderMessages()}
         <div ref={bottomRef} />
       </div>
 

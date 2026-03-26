@@ -17,13 +17,29 @@ export default async function Home() {
 
   const { data: friends } = await supabase
     .from('kyorangtalk_friends')
-    .select('*, requester:requester_id(id, kyorangtalk_profiles(nickname)), receiver:receiver_id(id, kyorangtalk_profiles(nickname))')
+    .select(`
+      *,
+      requester:requester_id(
+        id,
+        kyorangtalk_profiles(nickname)
+      ),
+      receiver:receiver_id(
+        id,
+        kyorangtalk_profiles(nickname)
+      )
+    `)
     .or(`requester_id.eq.${user.id},receiver_id.eq.${user.id}`)
     .eq('status', 'accepted')
 
   const { data: pending } = await supabase
     .from('kyorangtalk_friends')
-    .select('*, requester:requester_id(id, kyorangtalk_profiles(nickname))')
+    .select(`
+      *,
+      requester:requester_id(
+        id,
+        kyorangtalk_profiles(nickname)
+      )
+    `)
     .eq('receiver_id', user.id)
     .eq('status', 'pending')
 

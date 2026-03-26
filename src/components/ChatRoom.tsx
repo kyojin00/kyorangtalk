@@ -83,7 +83,7 @@ export default function ChatRoom({ room, initialMessages, userId, myNickname, pa
 
   return (
     <div className="flex flex-col h-screen max-w-lg mx-auto" style={{ background: 'var(--bg)' }}>
-      <header style={{ background: 'var(--surface)', borderBottom: '1px solid rgba(108,92,231,0.1)' }} className="flex-shrink-0">
+      <header style={{ background: 'var(--surface)', borderBottom: '1px solid rgba(108,92,231,0.1)' }} className="shrink-0">
         <div className="px-4 h-14 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <button onClick={() => router.push('/')} className="text-lg" style={{ color: 'var(--muted)' }}>←</button>
@@ -122,7 +122,7 @@ export default function ChatRoom({ room, initialMessages, userId, myNickname, pa
         <div ref={bottomRef} />
       </div>
 
-      <div className="flex-shrink-0 px-4 py-3 flex gap-2 items-end" style={{ background: 'var(--surface)', borderTop: '1px solid rgba(108,92,231,0.1)' }}>
+      <div className="shrink-0 px-4 py-3 flex gap-2 items-end" style={{ background: 'var(--surface)', borderTop: '1px solid rgba(108,92,231,0.1)' }}>
         <textarea
           ref={textareaRef}
           value={input}
@@ -137,7 +137,7 @@ export default function ChatRoom({ room, initialMessages, userId, myNickname, pa
         <button
           onClick={sendMessage}
           disabled={!input.trim() || sending || closed || room.status === 'waiting'}
-          className="w-10 h-10 rounded-xl flex items-center justify-center text-white transition flex-shrink-0 disabled:opacity-40"
+          className="w-10 h-10 rounded-xl flex items-center justify-center text-white transition shrink-0 disabled:opacity-40"
           style={{ background: 'var(--purple)' }}
         >
           ↑

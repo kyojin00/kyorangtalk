@@ -15,33 +15,35 @@ export default async function Home() {
 
   if (!profile) redirect('/setup')
 
-  const { data: friends } = await supabase
+  // 친구 목록 (accepted)
+  const { data: friendsRaw } = await supabase
     .from('kyorangtalk_friends')
-    .select(`
-      *,
-      requester:requester_id(
-        id,
-        kyorangtalk_profiles(nickname)
-      ),
-      receiver:receiver_id(
-        id,
-        kyorangtalk_profiles(nickname)
-      )
-    `)
+    .select('*')
     .or(`requester_id.eq.${user.id},receiver_id.eq.${user.id}`)
     .eq('status', 'accepted')
 
-  const { data: pending } = await supabase
+  // 받은 친구 요청 (pending)
+  const { data: pendingRaw } = await supabase
     .from('kyorangtalk_friends')
-    .select(`
-      *,
-      requester:requester_id(
-        id,
-        kyorangtalk_profiles(nickname)
-      )
-    `)
+    .select('*')
     .eq('receiver_id', user.id)
     .eq('status', 'pending')
+
+  // 관련 유저 ID 모아서 프로필 한번에 조회
+  const allUserIds = new Set<string>()
+  friendsRaw?.forEach(f => {
+    allUserIds.add(f.requester_id)
+    allUserIds.add(f.receiver_id)
+  })
+  pendingRaw?.forEach(f => allUserIds.add(f.requester_id))
+  allUserIds.delete(user.id)
+
+  const { data: profiles } = await supabase
+    .from('kyorangtalk_profiles')
+    .select('*')
+    .in('id', Array.from(allUserIds))
+
+  const profileMap = Object.fromEntries((profiles || []).map(p => [p.id, p]))
 
   const { data: rooms } = await supabase
     .from('kyorangtalk_rooms')
@@ -53,9 +55,10 @@ export default async function Home() {
     <HomeClient
       userId={user.id}
       profile={profile}
-      friends={friends || []}
-      pending={pending || []}
+      friends={friendsRaw || []}
+      pending={pendingRaw || []}
       rooms={rooms || []}
+      profileMap={profileMap}
     />
   )
 }

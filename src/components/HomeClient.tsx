@@ -5,29 +5,16 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
 interface Profile { id: string; nickname: string }
-interface Friend {
-  id: string
-  requester_id: string
-  receiver_id: string
-  status: string
-  requester?: { id: string; kyorangtalk_profiles: { nickname: string } | null }
-  receiver?: { id: string; kyorangtalk_profiles: { nickname: string } | null }
-}
-interface Room {
-  id: string
-  user1_id: string
-  user2_id: string
-  last_message: string | null
-  last_message_at: string | null
-  updated_at: string
-}
+interface Friend { id: string; requester_id: string; receiver_id: string; status: string }
+interface Room { id: string; user1_id: string; user2_id: string; last_message: string | null; last_message_at: string | null; updated_at: string }
 
-export default function HomeClient({ userId, profile, friends, pending, rooms }: {
+export default function HomeClient({ userId, profile, friends, pending, rooms, profileMap }: {
   userId: string
   profile: Profile
   friends: Friend[]
   pending: Friend[]
   rooms: Room[]
+  profileMap: Record<string, Profile>
 }) {
   const router = useRouter()
   const supabase = createClient()
@@ -37,6 +24,7 @@ export default function HomeClient({ userId, profile, friends, pending, rooms }:
   const [searching, setSearching] = useState(false)
   const [friendList, setFriendList] = useState(friends)
   const [pendingList, setPendingList] = useState(pending)
+  const [pMap, setPMap] = useState(profileMap)
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
@@ -74,6 +62,9 @@ export default function HomeClient({ userId, profile, friends, pending, rooms }:
       if (accepted) {
         setFriendList(prev => [...prev, { ...accepted, status: 'accepted' }])
         setPendingList(prev => prev.filter(p => p.id !== friendId))
+        // 프로필 맵에 추가
+        const { data: p } = await supabase.from('kyorangtalk_profiles').select('*').eq('id', accepted.requester_id).single()
+        if (p) setPMap(prev => ({ ...prev, [p.id]: p }))
       }
     }
   }
@@ -105,19 +96,12 @@ export default function HomeClient({ userId, profile, friends, pending, rooms }:
     if (newRoom) router.push(`/chat/${newRoom.id}`)
   }
 
-  const getFriendProfile = (friend: Friend) => {
-    if (friend.requester_id === userId) return friend.receiver?.kyorangtalk_profiles
-    return friend.requester?.kyorangtalk_profiles
-  }
-
-  const getFriendUserId = (friend: Friend) => {
-    return friend.requester_id === userId ? friend.receiver_id : friend.requester_id
-  }
+  const getFriendUserId = (friend: Friend) =>
+    friend.requester_id === userId ? friend.receiver_id : friend.requester_id
 
   const getPartnerNickname = (room: Room) => {
     const partnerId = room.user1_id === userId ? room.user2_id : room.user1_id
-    const friend = friendList.find(f => getFriendUserId(f) === partnerId)
-    return friend ? getFriendProfile(friend)?.nickname : '알 수 없음'
+    return pMap[partnerId]?.nickname || '알 수 없음'
   }
 
   return (
@@ -153,7 +137,7 @@ export default function HomeClient({ userId, profile, friends, pending, rooms }:
               rooms.map((room) => (
                 <button key={room.id} onClick={() => router.push(`/chat/${room.id}`)} className="w-full rounded-xl p-4 flex items-center gap-3 hover:opacity-80 transition text-left" style={{ background: 'var(--surface)', border: '1px solid rgba(108,92,231,0.1)' }}>
                   <div className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-white flex-shrink-0" style={{ background: 'var(--purple)' }}>
-                    {getPartnerNickname(room)?.[0] || '?'}
+                    {getPartnerNickname(room)[0]}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between">
@@ -204,8 +188,8 @@ export default function HomeClient({ userId, profile, friends, pending, rooms }:
                 {pendingList.map((req) => (
                   <div key={req.id} className="flex items-center justify-between px-4 py-3" style={{ background: 'var(--surface)', borderTop: '1px solid rgba(108,92,231,0.05)' }}>
                     <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-white text-sm" style={{ background: 'var(--purple)' }}>{req.requester?.kyorangtalk_profiles?.nickname?.[0] || '?'}</div>
-                      <span className="text-sm font-medium" style={{ color: 'var(--text)' }}>{req.requester?.kyorangtalk_profiles?.nickname || '알 수 없음'}</span>
+                      <div className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-white text-sm" style={{ background: 'var(--purple)' }}>{pMap[req.requester_id]?.nickname?.[0] || '?'}</div>
+                      <span className="text-sm font-medium" style={{ color: 'var(--text)' }}>{pMap[req.requester_id]?.nickname || '알 수 없음'}</span>
                     </div>
                     <div className="flex gap-2">
                       <button onClick={() => acceptFriend(req.id)} className="text-xs px-3 py-1.5 rounded-full text-white" style={{ background: 'var(--purple)' }}>수락</button>
@@ -222,8 +206,8 @@ export default function HomeClient({ userId, profile, friends, pending, rooms }:
                 <div className="text-center py-8 text-sm" style={{ color: 'var(--muted)', background: 'var(--surface)' }}>아직 친구가 없어요</div>
               ) : (
                 friendList.map((friend) => {
-                  const fp = getFriendProfile(friend)
                   const fId = getFriendUserId(friend)
+                  const fp = pMap[fId]
                   return (
                     <div key={friend.id} className="flex items-center justify-between px-4 py-3" style={{ background: 'var(--surface)', borderTop: '1px solid rgba(108,92,231,0.05)' }}>
                       <div className="flex items-center gap-3">

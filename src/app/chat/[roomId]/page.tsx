@@ -1,4 +1,4 @@
-import { notFound, redirect } from 'next/navigation'
+import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import ChatRoom from '@/components/ChatRoom'
 
@@ -9,17 +9,19 @@ export default async function ChatPage({ params }: { params: Promise<{ roomId: s
 
   if (!user) redirect('/login')
 
-  const { data: room } = await supabase
+  const { data: room, error } = await supabase
     .from('kyorangtalk_rooms')
     .select('*')
     .eq('id', roomId)
     .single()
 
-  if (!room) notFound()
+  if (error || !room) {
+    console.error('room fetch error:', error?.message, 'roomId:', roomId, 'userId:', user.id)
+    redirect('/')
+  }
 
-  // 본인 방인지 확인 (waiting 포함)
   const isMyRoom = room.user1_id === user.id || room.user2_id === user.id
-  if (!isMyRoom) notFound()
+  if (!isMyRoom) redirect('/')
 
   const { data: messages } = await supabase
     .from('kyorangtalk_messages')

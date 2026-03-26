@@ -86,15 +86,15 @@ export default function ChatRoom({ room, initialMessages, userId, myNickname, pa
     new Date(dateStr).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
 
   const formatDate = (dateStr: string) => {
-    const date = new Date(dateStr)
-    const now = new Date()
-    const dateOnly = new Date(date.getFullYear(), date.getMonth(), date.getDate())
-    const todayOnly = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-    const diff = todayOnly.getTime() - dateOnly.getTime()
-    if (diff === 0) return '오늘'
-    if (diff === 86400000) return '어제'
-    return date.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' })
-  }
+  const date = new Date(dateStr)
+  const now = new Date()
+  const dateOnly = new Date(date.getFullYear(), date.getMonth(), date.getDate())
+  const todayOnly = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const diff = todayOnly.getTime() - dateOnly.getTime()
+  if (diff === 0) return '오늘'
+  if (diff === 86400000) return '어제'
+  return date.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })
+}
 
   const isSameMinute = (a: string, b: string) => {
     const da = new Date(a)

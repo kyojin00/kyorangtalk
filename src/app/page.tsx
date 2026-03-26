@@ -4,7 +4,9 @@ import ChatListClient from '@/components/ChatListClient'
 
 export default async function Home() {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const { data: { user }, error } = await supabase.auth.getUser()
+
+  console.log('user id:', user?.id, 'error:', error?.message)
 
   if (!user) redirect('/login')
 

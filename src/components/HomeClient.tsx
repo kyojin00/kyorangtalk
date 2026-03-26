@@ -214,7 +214,11 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
         <div key={msg.id} className={`flex items-end gap-2 ${isMine ? 'justify-end' : 'justify-start'} ${!isFirstInGroup ? 'mt-0.5' : 'mt-3'}`}>
           {!isMine && (
             <div style={{ width: 28, flexShrink: 0 }}>
-              {isLastInGroup && <Avatar p={activePartner} size={28} />}
+              {isLastInGroup && (
+                <button onClick={() => setShowPartnerProfile(true)}>
+                  <Avatar p={activePartner} size={28} />
+                </button>
+              )}
             </div>
           )}
           <div className={`flex flex-col ${isMine ? 'items-end' : 'items-start'} max-w-[68%]`}>
@@ -391,7 +395,7 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
     <div className="min-h-screen" style={{ background: t.bg }}>
 
       {/* ── PC 레이아웃 ── */}
-      <div className="hidden lg:flex h-screen overflow-hidden">
+      <div className="hidden md:flex h-screen overflow-hidden" style={{ minWidth: '680px' }}>
 
         {/* 아이콘 사이드바 */}
         <div className="flex flex-col items-center py-6 gap-3 flex-shrink-0" style={{ width: 68, background: t.sidebarBg, borderRight: `1px solid ${t.border}` }}>
@@ -491,7 +495,7 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
       </div>
 
       {/* ── 모바일 레이아웃 ── */}
-      <div className="flex flex-col w-full lg:hidden">
+      <div className="flex flex-col w-full md:hidden">
         <header className="sticky top-0 z-50" style={{ background: t.headerBg, backdropFilter: 'blur(20px)', borderBottom: `1px solid ${t.border}` }}>
           <div className="max-w-lg mx-auto px-5 h-14 flex items-center">
             <span className="text-base font-bold" style={{ color: t.text }}>교랑톡</span>

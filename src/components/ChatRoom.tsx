@@ -148,7 +148,6 @@ export default function ChatRoom({ room, initialMessages, userId, myProfile, par
 
       elements.push(
         <div key={msg.id} className={`flex items-end gap-2 ${isMine ? 'justify-end' : 'justify-start'} ${!isFirstInGroup ? 'mt-0.5' : 'mt-3'}`}>
-          {/* 상대방 아바타 */}
           {!isMine && (
             <div style={{ width: 30, flexShrink: 0 }}>
               {isLastInGroup && (
@@ -158,7 +157,6 @@ export default function ChatRoom({ room, initialMessages, userId, myProfile, par
               )}
             </div>
           )}
-
           <div className={`flex flex-col ${isMine ? 'items-end' : 'items-start'} max-w-[68%]`}>
             {!isMine && isFirstInGroup && (
               <p className="text-xs mb-1 px-1" style={{ color: t.muted }}>{partnerProfile.nickname}</p>
@@ -187,11 +185,11 @@ export default function ChatRoom({ room, initialMessages, userId, myProfile, par
   }
 
   return (
-    <div className="flex flex-col h-screen max-w-lg mx-auto" style={{ background: t.bg }}>
+    <div className="flex flex-col h-screen" style={{ background: t.bg }}>
 
       {/* 헤더 */}
       <header className="flex-shrink-0" style={{ background: t.headerBg, backdropFilter: 'blur(20px)', borderBottom: `1px solid ${t.border}` }}>
-        <div className="px-4 h-14 flex items-center gap-3">
+        <div className="max-w-4xl mx-auto px-4 h-14 flex items-center gap-3 w-full">
           <button onClick={() => router.push('/')} className="w-8 h-8 flex items-center justify-center rounded-full transition-opacity hover:opacity-60" style={{ color: t.muted }}>←</button>
           <button onClick={() => setShowProfile(true)} className="flex items-center gap-3 flex-1 text-left hover:opacity-70 transition-opacity">
             <Avatar p={partnerProfile} size={34} />
@@ -206,62 +204,58 @@ export default function ChatRoom({ room, initialMessages, userId, myProfile, par
       </header>
 
       {/* 메시지 */}
-      <div className="flex-1 overflow-y-auto px-4 pb-4">
-        {mounted && renderMessages()}
-        <div ref={bottomRef} />
+      <div className="flex-1 overflow-y-auto pb-4">
+        <div className="max-w-4xl mx-auto px-4">
+          {mounted && renderMessages()}
+          <div ref={bottomRef} />
+        </div>
       </div>
 
       {/* 입력창 */}
-      <div className="flex-shrink-0 px-4 py-3 flex gap-2 items-end" style={{ background: t.surface, borderTop: `1px solid ${t.border}` }}>
-        <textarea
-          ref={textareaRef}
-          value={input}
-          onChange={handleInput}
-          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage() } }}
-          placeholder="메시지를 입력하세요..."
-          rows={1}
-          className="flex-1 resize-none rounded-2xl px-4 py-2.5 text-sm outline-none"
-          style={{ background: t.inputBg, border: `1px solid ${t.inputBorder}`, color: t.text, maxHeight: '120px' }}
-        />
-        <button
-          onClick={sendMessage}
-          disabled={!input.trim() || sending}
-          className="w-10 h-10 rounded-full flex items-center justify-center text-white flex-shrink-0 disabled:opacity-30"
-          style={{ background: input.trim() ? t.accent : t.muted }}>
-          ↑
-        </button>
+      <div className="flex-shrink-0" style={{ background: t.surface, borderTop: `1px solid ${t.border}` }}>
+        <div className="max-w-4xl mx-auto px-4 py-3 flex gap-2 items-end">
+          <textarea
+            ref={textareaRef}
+            value={input}
+            onChange={handleInput}
+            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage() } }}
+            placeholder="메시지를 입력하세요..."
+            rows={1}
+            className="flex-1 resize-none rounded-2xl px-4 py-2.5 text-sm outline-none"
+            style={{ background: t.inputBg, border: `1px solid ${t.inputBorder}`, color: t.text, maxHeight: '120px' }}
+          />
+          <button
+            onClick={sendMessage}
+            disabled={!input.trim() || sending}
+            className="w-10 h-10 rounded-full flex items-center justify-center text-white flex-shrink-0 disabled:opacity-30"
+            style={{ background: input.trim() ? t.accent : t.muted }}>
+            ↑
+          </button>
+        </div>
       </div>
 
       {/* 프로필 모달 */}
       {showProfile && (
         <div
-          className="fixed inset-0 z-50 flex items-end justify-center"
+          className="fixed inset-0 z-50 flex items-center justify-center"
           style={{ background: t.overlay }}
           onClick={() => setShowProfile(false)}
         >
           <div
-            className="w-full max-w-lg rounded-t-3xl overflow-hidden"
+            className="w-80 rounded-3xl overflow-hidden"
             style={{ background: t.surface }}
             onClick={(e) => e.stopPropagation()}
           >
-            {/* 프로필 배경 */}
-            <div className="relative h-32 flex items-end px-6 pb-0" style={{ background: 'linear-gradient(135deg, #a78bfa, #7c3aed)' }}>
-              <div className="absolute top-4 right-4">
-                <button onClick={() => setShowProfile(false)} className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: 'rgba(255,255,255,0.2)', color: 'white', fontSize: 16 }}>✕</button>
-              </div>
-              <div className="relative translate-y-8">
-                <Avatar p={partnerProfile} size={72} />
-              </div>
+            <div className="relative h-28 flex-shrink-0" style={{ background: 'linear-gradient(135deg, #a78bfa, #7c3aed)' }}>
+              <button onClick={() => setShowProfile(false)} className="absolute top-3 right-3 w-7 h-7 rounded-full flex items-center justify-center text-xs" style={{ background: 'rgba(255,255,255,0.2)', color: 'white' }}>✕</button>
             </div>
-
-            {/* 프로필 정보 */}
-            <div className="pt-12 pb-8 px-6">
-              <h2 className="text-xl font-bold mb-1" style={{ color: t.text }}>{partnerProfile.nickname}</h2>
-              {partnerProfile.status_message ? (
-                <p className="text-sm" style={{ color: t.muted }}>{partnerProfile.status_message}</p>
-              ) : (
-                <p className="text-sm" style={{ color: t.muted, opacity: 0.5 }}>상태 메시지 없음</p>
-              )}
+            <div className="px-5 pb-6 flex flex-col items-center text-center -mt-9">
+              <Avatar p={partnerProfile} size={72} />
+              <h2 className="text-xl font-bold mt-3 mb-1" style={{ color: t.text }}>{partnerProfile.nickname}</h2>
+              {partnerProfile.status_message
+                ? <p className="text-sm" style={{ color: t.muted }}>{partnerProfile.status_message}</p>
+                : <p className="text-sm" style={{ color: t.muted, opacity: 0.5 }}>상태 메시지 없음</p>
+              }
             </div>
           </div>
         </div>

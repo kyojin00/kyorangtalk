@@ -186,6 +186,7 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
     theirBorder: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(108,92,231,0.12)',
     datePill: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(108,92,231,0.07)',
     headerBg: isDark ? 'rgba(15,15,20,0.95)' : 'rgba(247,244,255,0.95)',
+    overlay: 'rgba(0,0,0,0.5)',
   }
 
   const tabs = [

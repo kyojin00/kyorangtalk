@@ -250,12 +250,14 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
       </button>
 
       <div className="px-5 py-3" style={{ borderBottom: `1px solid ${t.border}` }}>
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
           <input type="text" placeholder="닉네임으로 친구 찾기" value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-            className="flex-1 px-4 py-2.5 rounded-xl text-sm outline-none"
-            style={{ background: t.inputBg, border: `1px solid ${t.inputBorder}`, color: t.text }} />
-          <button onClick={handleSearch} disabled={searching} className="px-4 py-2.5 rounded-xl text-sm font-medium" style={{ background: t.accent, color: 'white' }}>
+            className="text-sm outline-none"
+            style={{ flex: 1, minWidth: 0, background: t.inputBg, border: `1px solid ${t.inputBorder}`, color: t.text, borderRadius: 12, padding: '10px 16px' }} />
+          <button onClick={handleSearch} disabled={searching}
+            className="text-sm font-medium transition-opacity hover:opacity-80 flex-shrink-0"
+            style={{ background: t.accent, color: 'white', borderRadius: 12, padding: '10px 16px', whiteSpace: 'nowrap' }}>
             {searching ? '...' : '검색'}
           </button>
         </div>

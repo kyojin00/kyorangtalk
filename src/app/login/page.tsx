@@ -76,8 +76,7 @@ export default function LoginPage() {
 
         <p className="text-center text-xs mt-4" style={{ color: 'var(--muted)' }}>
           계정이 없으신가요?{' '}
-          <a href="https://kyorang.ai.kr/signup" style={{ color: 'var(--purple)' }}>교랑에서 회원가입</a>
-        </p>
+          <a href="/signup" style={{ color: 'var(--purple)' }}>회원가입</a>
       </div>
     </div>
   )

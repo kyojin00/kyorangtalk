@@ -45,12 +45,28 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
   }
 
   const sendFriendRequest = async (receiverId: string) => {
-    const { error } = await supabase
-      .from('kyorangtalk_friends')
-      .insert({ requester_id: userId, receiver_id: receiverId })
-    if (error) alert('이미 친구 요청을 보냈거나 이미 친구예요.')
-    else { alert('친구 요청을 보냈어요!'); setSearchResults([]) }
+  // 이미 친구이거나 요청 중인지 확인
+  const { data: existing } = await supabase
+    .from('kyorangtalk_friends')
+    .select('*')
+    .or(
+      `and(requester_id.eq.${userId},receiver_id.eq.${receiverId}),and(requester_id.eq.${receiverId},receiver_id.eq.${userId})`
+    )
+    .limit(1)
+
+  if (existing && existing.length > 0) {
+    const rel = existing[0]
+    if (rel.status === 'accepted') { alert('이미 친구예요!'); return }
+    if (rel.status === 'pending') { alert('이미 친구 요청이 있어요!'); return }
   }
+
+  const { error } = await supabase
+    .from('kyorangtalk_friends')
+    .insert({ requester_id: userId, receiver_id: receiverId })
+
+  if (error) alert('오류가 발생했어요.')
+  else { alert('친구 요청을 보냈어요!'); setSearchResults([]) }
+}
 
   const acceptFriend = async (friendId: string) => {
     const { error } = await supabase

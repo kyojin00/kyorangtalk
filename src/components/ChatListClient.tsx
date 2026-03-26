@@ -39,15 +39,11 @@ export default function ChatListClient({ initialRooms, userId }: { initialRooms:
     router.push('/login')
   }
 
-  const startMatching = async () => {
+const startMatching = async () => {
   setMatching(true)
   try {
-    // 세션 확인
     const { data: { session } } = await supabase.auth.getSession()
-    if (!session) {
-      router.push('/login')
-      return
-    }
+    if (!session) { router.push('/login'); return }
 
     const { data: waitingRooms } = await supabase
       .from('kyorangtalk_rooms')
@@ -78,23 +74,14 @@ export default function ChatListClient({ initialRooms, userId }: { initialRooms:
       .single()
 
     if (insertError) {
-      console.error('방 생성 실패:', insertError.message)
-      alert('채팅방 생성에 실패했어요. 다시 시도해주세요.\n' + insertError.message)
+      alert('채팅방 생성 실패: ' + insertError.message)
       setMatching(false)
       return
     }
 
     if (newRoom) {
-      setWaitingRoomId(newRoom.id)
-      const channel = supabase
-        .channel(`match-wait:${newRoom.id}`)
-        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'kyorangtalk_rooms', filter: `id=eq.${newRoom.id}` }, (payload) => {
-          if (payload.new.status === 'active') {
-            supabase.removeChannel(channel)
-            router.push(`/chat/${newRoom.id}`)
-          }
-        })
-        .subscribe()
+      // 바로 채팅방으로 이동 (대기 화면은 채팅방 안에서 처리)
+      router.push(`/chat/${newRoom.id}`)
     }
   } catch (err) {
     console.error(err)

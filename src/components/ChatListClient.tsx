@@ -40,53 +40,67 @@ export default function ChatListClient({ initialRooms, userId }: { initialRooms:
   }
 
   const startMatching = async () => {
-    setMatching(true)
-    try {
-      const { data: waitingRooms } = await supabase
-        .from('kyorangtalk_rooms')
-        .select('*')
-        .eq('status', 'waiting')
-        .is('user2_id', null)
-        .neq('user1_id', userId)
-        .order('created_at', { ascending: true })
-        .limit(1)
-
-      if (waitingRooms && waitingRooms.length > 0) {
-        const room = waitingRooms[0]
-        const myNickname = generateNickname()
-        const { error } = await supabase
-          .from('kyorangtalk_rooms')
-          .update({ user2_id: userId, user2_nickname: myNickname, status: 'active', updated_at: new Date().toISOString() })
-          .eq('id', room.id)
-          .is('user2_id', null)
-
-        if (!error) { router.push(`/chat/${room.id}`); return }
-      }
-
-      const myNickname = generateNickname()
-      const { data: newRoom } = await supabase
-        .from('kyorangtalk_rooms')
-        .insert({ user1_id: userId, user1_nickname: myNickname, user2_nickname: '???', status: 'waiting' })
-        .select()
-        .single()
-
-      if (newRoom) {
-        setWaitingRoomId(newRoom.id)
-        const channel = supabase
-          .channel(`match-wait:${newRoom.id}`)
-          .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'kyorangtalk_rooms', filter: `id=eq.${newRoom.id}` }, (payload) => {
-            if (payload.new.status === 'active') {
-              supabase.removeChannel(channel)
-              router.push(`/chat/${newRoom.id}`)
-            }
-          })
-          .subscribe()
-      }
-    } catch (err) {
-      console.error(err)
-      setMatching(false)
+  setMatching(true)
+  try {
+    // 세션 확인
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) {
+      router.push('/login')
+      return
     }
+
+    const { data: waitingRooms } = await supabase
+      .from('kyorangtalk_rooms')
+      .select('*')
+      .eq('status', 'waiting')
+      .is('user2_id', null)
+      .neq('user1_id', userId)
+      .order('created_at', { ascending: true })
+      .limit(1)
+
+    if (waitingRooms && waitingRooms.length > 0) {
+      const room = waitingRooms[0]
+      const myNickname = generateNickname()
+      const { error } = await supabase
+        .from('kyorangtalk_rooms')
+        .update({ user2_id: userId, user2_nickname: myNickname, status: 'active', updated_at: new Date().toISOString() })
+        .eq('id', room.id)
+        .is('user2_id', null)
+
+      if (!error) { router.push(`/chat/${room.id}`); return }
+    }
+
+    const myNickname = generateNickname()
+    const { data: newRoom, error: insertError } = await supabase
+      .from('kyorangtalk_rooms')
+      .insert({ user1_id: userId, user1_nickname: myNickname, user2_nickname: '???', status: 'waiting' })
+      .select()
+      .single()
+
+    if (insertError) {
+      console.error('방 생성 실패:', insertError.message)
+      alert('채팅방 생성에 실패했어요. 다시 시도해주세요.\n' + insertError.message)
+      setMatching(false)
+      return
+    }
+
+    if (newRoom) {
+      setWaitingRoomId(newRoom.id)
+      const channel = supabase
+        .channel(`match-wait:${newRoom.id}`)
+        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'kyorangtalk_rooms', filter: `id=eq.${newRoom.id}` }, (payload) => {
+          if (payload.new.status === 'active') {
+            supabase.removeChannel(channel)
+            router.push(`/chat/${newRoom.id}`)
+          }
+        })
+        .subscribe()
+    }
+  } catch (err) {
+    console.error(err)
+    setMatching(false)
   }
+}
 
   const cancelMatching = async () => {
     if (waitingRoomId) {

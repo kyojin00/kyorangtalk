@@ -11,13 +11,7 @@ export default function AuthConfirm() {
     const supabase = createClient()
 
     const handleSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (session) {
-        router.push('/')
-        return
-      }
-
-      // URL hash에서 토큰 추출 (OAuth implicit flow)
+      // 1. URL hash에서 토큰 추출
       const hash = window.location.hash
       if (hash) {
         const params = new URLSearchParams(hash.substring(1))
@@ -25,12 +19,19 @@ export default function AuthConfirm() {
         const refresh_token = params.get('refresh_token')
 
         if (access_token && refresh_token) {
-          const { error } = await supabase.auth.setSession({ access_token, refresh_token })
-          if (!error) {
-            router.push('/')
-            return
-          }
+          await supabase.auth.setSession({ access_token, refresh_token })
+          // 세션 쿠키 저장될 때까지 잠깐 대기
+          await new Promise(r => setTimeout(r, 500))
+          router.push('/')
+          return
         }
+      }
+
+      // 2. 이미 세션 있는 경우
+      const { data: { session } } = await supabase.auth.getSession()
+      if (session) {
+        router.push('/')
+        return
       }
 
       router.push('/login')

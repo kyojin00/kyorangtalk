@@ -39,7 +39,7 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, groupMessages])
 
-  // 5초마다 읽음 상태 체크
+  // 읽음 상태 폴링 (5초마다)
   useEffect(() => {
     if (openChat.type !== 'dm') return
     const interval = setInterval(async () => {
@@ -51,7 +51,7 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
         .eq('is_read', true)
       if (data && data.length > 0) {
         setMessages(prev => prev.map(m => {
-          const updated = data.find(d => d.id === m.id)
+          const updated = data.find((d: any) => d.id === m.id)
           return updated ? { ...m, is_read: true } : m
         }))
       }
@@ -60,15 +60,36 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
   }, [openChat.id, openChat.type])
 
   useEffect(() => {
+    if (openChat.type !== 'dm') return
+    const ch = supabase.channel(`dm:${openChat.id}:${userId}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'kyorangtalk_messages', filter: `room_id=eq.${openChat.id}` },
+        async (p) => {
+          const msg = p.new as Message
+          // 상대방 메시지만 추가 (내 메시지는 sendMessage에서 직접 추가)
+          if (msg.sender_id !== userId) {
+            setMessages(prev => [...prev, msg])
+            await supabase.from('kyorangtalk_messages').update({ is_read: true }).eq('id', msg.id)
+            onMarkRead(openChat.id)
+          }
+        })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'kyorangtalk_messages', filter: `room_id=eq.${openChat.id}` },
+        (p) => setMessages(prev => prev.map(m => m.id === p.new.id ? p.new as Message : m)))
+      .subscribe()
+    return () => { supabase.removeChannel(ch) }
+  }, [openChat.id, openChat.type])
+
+  useEffect(() => {
     if (openChat.type !== 'group') return
     const ch = supabase.channel(`grp:${openChat.id}:${userId}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'kyorangtalk_group_messages', filter: `room_id=eq.${openChat.id}` },
         async (p) => {
           const msg = p.new as GroupMessage
-          setGroupMessages(prev => [...prev, msg])
-          if (!gProfiles[msg.sender_id]) {
-            const { data } = await supabase.from('kyorangtalk_profiles').select('*').eq('id', msg.sender_id).single()
-            if (data) setGProfiles(prev => ({ ...prev, [data.id]: data }))
+          if (msg.sender_id !== userId) {
+            setGroupMessages(prev => [...prev, msg])
+            if (!gProfiles[msg.sender_id]) {
+              const { data } = await supabase.from('kyorangtalk_profiles').select('*').eq('id', msg.sender_id).single()
+              if (data) setGProfiles(prev => ({ ...prev, [data.id]: data }))
+            }
           }
         })
       .subscribe()
@@ -104,7 +125,6 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
     const content = input.trim()
     setInput('')
     if (inputRef.current) inputRef.current.style.height = 'auto'
-
     if (openChat.type === 'dm') {
       const { data: newMsg } = await supabase
         .from('kyorangtalk_messages')
@@ -156,8 +176,9 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
         )}
         <div className={`flex items-end gap-1.5 ${isMine ? 'justify-end' : 'justify-start'} ${!isFirst ? 'mt-0.5' : 'mt-3'}`}>
           {!isMine && <div style={{ width: 26, flexShrink: 0 }}>{isLast && <Avatar p={sender} size={26} />}</div>}
-          <div className={`flex items-end gap-1.5 flex-row max-w-[70%]`}>
-            {/* 읽음/시간 - 버블 왼쪽 하단 */}
+
+          {/* 시간/읽음 항상 버블 왼쪽 (flex-row 고정) */}
+          <div className="flex items-end gap-1.5 flex-row max-w-[70%]">
             {isLast && (
               <div className="flex flex-col items-end gap-0.5 flex-shrink-0 mb-0.5">
                 <span style={{ color: t.muted, fontSize: 10, whiteSpace: 'nowrap' }}>{fmtTime(msg.created_at)}</span>
@@ -255,7 +276,8 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
             ))}
           </div>
           <div className="p-4">
-            <button onClick={leaveGroup} className="w-full py-2 rounded-xl text-xs font-medium" style={{ background: 'rgba(239,68,68,0.08)', color: '#ef4444' }}>나가기</button>
+            <button onClick={leaveGroup} className="w-full py-2 rounded-xl text-xs font-medium"
+              style={{ background: 'rgba(239,68,68,0.08)', color: '#ef4444' }}>나가기</button>
           </div>
         </div>
       )}

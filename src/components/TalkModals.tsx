@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Avatar } from './TalkAvatars'
 import { useThemeColors } from './useTheme'
-import { Profile, Friend, GroupRoom, OpenChat } from './types'
+import { Profile, Friend, GroupRoom } from './types'
 
 // 그룹 만들기 모달
 export function CreateGroupModal({ userId, isDark, onClose, onCreated }: {
@@ -107,7 +107,7 @@ export function CreateGroupModal({ userId, isDark, onClose, onCreated }: {
   )
 }
 
-// 새 채팅 모달 (친구 선택)
+// 새 채팅 모달 (친구 선택 → 1명이면 DM, 2명 이상이면 그룹이지만 채팅 탭에 표시)
 export function CreateChatModal({ userId, profile, friendList, pMap, isDark, onClose, onStartDM, onStartGroup }: {
   userId: string
   profile: Profile
@@ -129,12 +129,16 @@ export function CreateChatModal({ userId, profile, friendList, pMap, isDark, onC
   const handleStart = async () => {
     if (selected.length === 0) return
     setCreating(true)
+
     if (selected.length === 1) {
+      // 1명 → DM
       onStartDM(selected[0].id)
       onClose()
       setCreating(false)
       return
     }
+
+    // 2명 이상 → 그룹채팅이지만 채팅 탭에 표시
     const name = roomName.trim() || `${profile.nickname}, ${selected.map(f => f.nickname).join(', ')}`
     const { data: room } = await supabase
       .from('kyorangtalk_group_rooms')

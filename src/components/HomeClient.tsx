@@ -737,10 +737,10 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
             </h2>
           </div>
           <div className="flex-1 overflow-y-auto">
-            {tab === 'friends' && <FriendsContent />}
-            {tab === 'chats' && <ChatsContent onRoomClick={(id) => openRoom(id)} />}
-            {tab === 'groups' && <GroupsContent onGroupClick={(room) => openGroupRoom(room)} />}
-            {tab === 'settings' && <SettingsContent />}
+            {tab === 'friends' && FriendsContent()}
+            {tab === 'chats' && ChatsContent({ onRoomClick: (id) => openRoom(id) })}
+            {tab === 'groups' && GroupsContent({ onGroupClick: (room) => openGroupRoom(room) })}
+            {tab === 'settings' && SettingsContent()}
           </div>
         </div>
 
@@ -866,10 +866,10 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
           </div>
         </header>
         <div className="flex-1 max-w-lg mx-auto w-full">
-          {tab === 'friends' && <FriendsContent />}
-          {tab === 'chats' && <ChatsContent onRoomClick={(id) => router.push(`/chat/${id}`)} />}
-          {tab === 'groups' && <GroupsContent onGroupClick={(room) => { openGroupRoom(room); router.push(`/group/${room.id}`) }} />}
-          {tab === 'settings' && <SettingsContent />}
+          {tab === 'friends' && FriendsContent()}
+          {tab === 'chats' && ChatsContent({ onRoomClick: (id) => router.push(`/chat/${id}`) })}
+          {tab === 'groups' && GroupsContent({ onGroupClick: (room) => { openGroupRoom(room); router.push(`/group/${room.id}`) } })}
+          {tab === 'settings' && SettingsContent()}
         </div>
       </div>
 

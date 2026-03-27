@@ -39,22 +39,24 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, groupMessages])
 
+  // 5초마다 읽음 상태 체크
   useEffect(() => {
     if (openChat.type !== 'dm') return
-    const ch = supabase.channel(`dm:${openChat.id}:${userId}`)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'kyorangtalk_messages', filter: `room_id=eq.${openChat.id}` },
-        async (p) => {
-          const msg = p.new as Message
-          setMessages(prev => [...prev, msg])
-          if (msg.sender_id !== userId) {
-            await supabase.from('kyorangtalk_messages').update({ is_read: true }).eq('id', msg.id)
-            onMarkRead(openChat.id)
-          }
-        })
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'kyorangtalk_messages', filter: `room_id=eq.${openChat.id}` },
-        (p) => setMessages(prev => prev.map(m => m.id === p.new.id ? p.new as Message : m)))
-      .subscribe()
-    return () => { supabase.removeChannel(ch) }
+    const interval = setInterval(async () => {
+      const { data } = await supabase
+        .from('kyorangtalk_messages')
+        .select('id, is_read')
+        .eq('room_id', openChat.id)
+        .eq('sender_id', userId)
+        .eq('is_read', true)
+      if (data && data.length > 0) {
+        setMessages(prev => prev.map(m => {
+          const updated = data.find(d => d.id === m.id)
+          return updated ? { ...m, is_read: true } : m
+        }))
+      }
+    }, 5000)
+    return () => clearInterval(interval)
   }, [openChat.id, openChat.type])
 
   useEffect(() => {
@@ -143,7 +145,7 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
         )}
         <div className={`flex items-end gap-1.5 ${isMine ? 'justify-end' : 'justify-start'} ${!isFirst ? 'mt-0.5' : 'mt-3'}`}>
           {!isMine && <div style={{ width: 26, flexShrink: 0 }}>{isLast && <Avatar p={sender} size={26} />}</div>}
-          <div className={`flex items-end gap-1.5 ${isMine ? 'flex-row-reverse' : 'flex-row'} max-w-[70%]`}>
+          <div className={`flex items-end gap-1.5 flex-row max-w-[70%]`}>
             {/* 읽음/시간 - 버블 왼쪽 하단 */}
             {isLast && (
               <div className="flex flex-col items-end gap-0.5 flex-shrink-0 mb-0.5">

@@ -30,10 +30,13 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
   const [pMap, setPMap] = useState(profileMap)
   const [roomList, setRoomList] = useState(rooms)
   const [openChats, setOpenChats] = useState<OpenChat[]>([])
+  // 그룹 탭용 (초대링크 방)
   const [myGroupRooms, setMyGroupRooms] = useState<GroupRoom[]>([])
+  // 채팅 탭용 (친구 그룹방)
   const [chatTabGroups, setChatTabGroups] = useState<GroupRoom[]>([])
   const [publicRooms, setPublicRooms] = useState<GroupRoom[]>([])
   const [unreadMap, setUnreadMap] = useState<Record<string, number>>({})
+  const [groupUnreadMap, setGroupUnreadMap] = useState<Record<string, number>>({})
   const [showCreateGroup, setShowCreateGroup] = useState(false)
   const [showCreateChat, setShowCreateChat] = useState(false)
   const [joinCode, setJoinCode] = useState('')
@@ -49,6 +52,7 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
     loadSentRequests()
     loadUnreadCounts()
     loadPublicRooms()
+    loadGroupUnreadCounts()
   }, [])
 
   const loadUnreadCounts = async () => {
@@ -56,13 +60,41 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
     if (data) { const c: Record<string, number> = {}; data.forEach(m => { c[m.room_id] = (c[m.room_id] || 0) + 1 }); setUnreadMap(c) }
   }
 
-  const handleMarkRead = (roomId: string) => setUnreadMap(prev => { const n = { ...prev }; delete n[roomId]; return n })
+  const loadGroupUnreadCounts = async () => {
+    // 내 마지막 읽음 시각
+    const { data: reads } = await supabase.from('kyorangtalk_group_reads').select('room_id, last_read_at').eq('user_id', userId)
+    const readMap: Record<string, string> = {}
+    reads?.forEach(r => { readMap[r.room_id] = r.last_read_at })
+
+    // 그룹별 안읽은 메시지 수
+    const { data: memberRows } = await supabase.from('kyorangtalk_group_members').select('room_id').eq('user_id', userId)
+    if (!memberRows?.length) return
+
+    const counts: Record<string, number> = {}
+    for (const row of memberRows) {
+      const lastRead = readMap[row.room_id]
+      let query = supabase.from('kyorangtalk_group_messages').select('id', { count: 'exact', head: true }).eq('room_id', row.room_id).neq('sender_id', userId)
+      if (lastRead) query = query.gt('created_at', lastRead)
+      const { count } = await query
+      if (count && count > 0) counts[row.room_id] = count
+    }
+    setGroupUnreadMap(counts)
+  }
+
+  const handleMarkRead = (roomId: string) => {
+    setUnreadMap(prev => { const n = { ...prev }; delete n[roomId]; return n })
+    setGroupUnreadMap(prev => { const n = { ...prev }; delete n[roomId]; return n })
+  }
 
   const loadMyGroups = async () => {
     const { data: memberRows } = await supabase.from('kyorangtalk_group_members').select('room_id').eq('user_id', userId)
     if (!memberRows?.length) return
     const { data } = await supabase.from('kyorangtalk_group_rooms').select('*').in('id', memberRows.map(m => m.room_id)).order('created_at', { ascending: false })
-    if (data) setMyGroupRooms(data)
+    if (data) {
+      // 친구 그룹방은 채팅탭, 일반 그룹방은 그룹탭
+      setMyGroupRooms(data.filter(r => !r.is_friend_group))
+      setChatTabGroups(data.filter(r => r.is_friend_group))
+    }
   }
 
   const loadPublicRooms = async () => {
@@ -85,6 +117,12 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
   const openDMChat = (room: Room) => { if (!openChats.find(c => c.id === room.id)) setOpenChats(prev => [...prev, { id: room.id, type: 'dm', room }]) }
   const openGroupChat = (groupRoom: GroupRoom) => { if (!openChats.find(c => c.id === groupRoom.id)) setOpenChats(prev => [...prev, { id: groupRoom.id, type: 'group', groupRoom }]) }
   const closeChat = (id: string) => setOpenChats(prev => prev.filter(c => c.id !== id))
+
+  // 방 나가면 즉시 목록에서 제거
+  const handleLeaveGroup = (roomId: string) => {
+    setMyGroupRooms(prev => prev.filter(r => r.id !== roomId))
+    setChatTabGroups(prev => prev.filter(r => r.id !== roomId))
+  }
 
   const startChat = async (friendUserId: string) => {
     const u1 = userId < friendUserId ? userId : friendUserId
@@ -155,14 +193,19 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
   const getFriendUserId = (f: Friend) => f.requester_id === userId ? f.receiver_id : f.requester_id
   const getPartner = (r: Room) => pMap[r.user1_id === userId ? r.user2_id : r.user1_id]
   const toggleTheme = (dark: boolean) => { setIsDark(dark); localStorage.setItem('kyorangtalk-theme', dark ? 'dark' : 'light') }
-  const totalUnread = Object.values(unreadMap).reduce((a, b) => a + b, 0)
+
+  const dmUnread = Object.values(unreadMap).reduce((a, b) => a + b, 0)
+  const groupUnread = Object.values(groupUnreadMap).reduce((a, b) => a + b, 0)
+  const totalChatUnread = dmUnread + Object.values(groupUnreadMap).filter((_, i) => chatTabGroups.map(r => r.id).includes(Object.keys(groupUnreadMap)[i])).reduce((a, b) => a + b, 0)
+  const totalGroupUnread = Object.entries(groupUnreadMap).filter(([id]) => myGroupRooms.map(r => r.id).includes(id)).reduce((a, [, b]) => a + b, 0)
+
   const joinedIds = new Set(myGroupRooms.map(r => r.id))
   const filteredPublic = publicRooms.filter(r => !exploreSearch || r.name.includes(exploreSearch) || r.description?.includes(exploreSearch))
 
   const tabs = [
     { key: 'friends' as const, icon: '👥', badge: pendingList.length },
-    { key: 'chats' as const, icon: '💬', badge: totalUnread },
-    { key: 'groups' as const, icon: '🏠', badge: 0 },
+    { key: 'chats' as const, icon: '💬', badge: dmUnread + chatTabGroups.reduce((a, r) => a + (groupUnreadMap[r.id] || 0), 0) },
+    { key: 'groups' as const, icon: '🏠', badge: totalGroupUnread },
     { key: 'explore' as const, icon: '🔍', badge: 0 },
     { key: 'settings' as const, icon: '⚙️', badge: 0 },
   ]
@@ -172,7 +215,6 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
   return (
     <div className="flex h-screen overflow-hidden" style={{ background: t.bg }}>
 
-      {/* 모달 */}
       {showCreateGroup && (
         <CreateGroupModal userId={userId} isDark={isDark}
           onClose={() => setShowCreateGroup(false)}
@@ -191,14 +233,14 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
           onClose={() => setShowCreateChat(false)}
           onStartDM={async (fId) => { await startChat(fId); setTab('chats') }}
           onStartGroup={(room) => {
-            setMyGroupRooms(prev => [room, ...prev])
+            // 친구 그룹방 → 채팅탭에만 추가 (그룹탭 X)
             setChatTabGroups(prev => [room, ...prev])
             openGroupChat(room)
             setTab('chats')
           }} />
       )}
 
-      {/* 아이콘 사이드바 */}
+      {/* 사이드바 */}
       <div className="flex flex-col items-center py-6 gap-3 flex-shrink-0" style={{ width: 68, background: t.sidebarBg, borderRight: `1px solid ${t.border}` }}>
         <div className="mb-2"><Avatar p={profile} size={34} /></div>
         {tabs.map(({ key, icon, badge }) => (
@@ -301,13 +343,13 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
             </div>
           )}
 
-          {/* 채팅 탭 */}
+          {/* 채팅 탭 - DM + 친구 그룹방 */}
           {tab === 'chats' && (
             <div>
               <div className="px-4 py-3" style={{ borderBottom: `1px solid ${t.border}` }}>
                 <button onClick={() => setShowCreateChat(true)} className="w-full py-2 rounded-xl text-sm font-medium text-white" style={{ background: t.accent }}>+ 새 채팅</button>
               </div>
-              {/* DM 목록 */}
+              {/* DM */}
               {roomList.map(room => {
                 const partner = getPartner(room); const unread = unreadMap[room.id] || 0; const isOpen = !!openChats.find(c => c.id === room.id)
                 return (
@@ -326,13 +368,15 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
                   </button>
                 )
               })}
-              {/* 채팅 탭 그룹 (새 채팅에서 2명 이상 선택 시) */}
+              {/* 친구 그룹방 */}
               {chatTabGroups.map(room => {
-                const isOpen = !!openChats.find(c => c.id === room.id)
+                const unread = groupUnreadMap[room.id] || 0; const isOpen = !!openChats.find(c => c.id === room.id)
                 return (
                   <button key={room.id} onClick={() => openGroupChat(room)} className="w-full flex items-center gap-3 px-4 py-3.5 text-left hover:opacity-70"
                     style={{ borderBottom: `1px solid ${t.borderSub}`, background: isOpen ? t.accentLight : 'transparent' }}>
-                    <GroupAvatar name={room.name} size={42} />
+                    <div className="relative"><GroupAvatar name={room.name} size={42} />
+                      {unread > 0 && <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full text-white flex items-center justify-center font-bold" style={{ background: '#ef4444', fontSize: 9 }}>{unread}</span>}
+                    </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5 mb-0.5">
                         <p className="font-semibold text-sm truncate" style={{ color: t.text }}>{room.name}</p>
@@ -349,7 +393,7 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
             </div>
           )}
 
-          {/* 그룹 탭 */}
+          {/* 그룹 탭 - 일반 그룹방만 */}
           {tab === 'groups' && (
             <div>
               <div className="px-4 py-3 space-y-2" style={{ borderBottom: `1px solid ${t.border}` }}>
@@ -365,11 +409,13 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
               {myGroupRooms.length === 0
                 ? <div className="text-center py-16"><p className="text-3xl mb-3">🏠</p><p className="text-sm" style={{ color: t.muted }}>그룹이 없어요</p></div>
                 : myGroupRooms.map(room => {
-                  const isOpen = !!openChats.find(c => c.id === room.id)
+                  const unread = groupUnreadMap[room.id] || 0; const isOpen = !!openChats.find(c => c.id === room.id)
                   return (
                     <button key={room.id} onClick={() => openGroupChat(room)} className="w-full flex items-center gap-3 px-4 py-3.5 text-left hover:opacity-70"
                       style={{ borderBottom: `1px solid ${t.borderSub}`, background: isOpen ? t.accentLight : 'transparent' }}>
-                      <GroupAvatar name={room.name} size={42} />
+                      <div className="relative"><GroupAvatar name={room.name} size={42} />
+                        {unread > 0 && <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full text-white flex items-center justify-center font-bold" style={{ background: '#ef4444', fontSize: 9 }}>{unread}</span>}
+                      </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-1.5 mb-0.5">
                           <p className="font-semibold text-sm truncate" style={{ color: t.text }}>{room.name}</p>
@@ -453,7 +499,12 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
           </div>
         ) : openChats.map(chat => (
           <div key={chat.id} style={{ width: `${Math.max(300, Math.floor(100 / openChats.length))}%`, minWidth: '300px', maxWidth: '600px', flexShrink: 0, flexGrow: 1 }}>
-            <ChatPanel openChat={chat} userId={userId} pMap={pMap} isDark={isDark} onClose={closeChat} onMarkRead={handleMarkRead} />
+            <ChatPanel
+              openChat={chat} userId={userId} pMap={pMap} isDark={isDark}
+              onClose={closeChat}
+              onMarkRead={handleMarkRead}
+              onLeaveGroup={handleLeaveGroup}
+            />
           </div>
         ))}
       </div>

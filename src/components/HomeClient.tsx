@@ -222,8 +222,12 @@ function ChatPanel({ openChat, userId, pMap, groupMemberProfiles, isDark, onClos
                   <span style={{ color: t.muted, fontSize: 10 }}>{formatTime(msg.created_at)}</span>
                   {/* 읽음 표시 - DM만 */}
                   {isMine && openChat.type === 'dm' && dmMsg && (
-                    <span style={{ fontSize: 10, color: dmMsg.is_read ? '#a78bfa' : t.muted }}>
-                      {dmMsg.is_read ? '읽음' : '전송'}
+                    <span style={{
+                      fontSize: 10,
+                      color: dmMsg.is_read ? 'transparent' : '#a78bfa',
+                      fontWeight: 600,
+                    }}>
+                      {dmMsg.is_read ? '' : '1'}
                     </span>
                   )}
                 </div>

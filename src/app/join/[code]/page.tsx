@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
-export default function JoinPage({ params }: { params: { code: string } }) {
+export default function JoinPage({ params }: { params: Promise<{ code: string }> }) {
   const [status, setStatus] = useState<'loading' | 'success' | 'error' | 'login'>('loading')
   const [roomName, setRoomName] = useState('')
   const router = useRouter()
@@ -12,13 +12,15 @@ export default function JoinPage({ params }: { params: { code: string } }) {
 
   useEffect(() => {
     const join = async () => {
+      const { code } = await params
+
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { setStatus('login'); return }
 
       const { data: room } = await supabase
         .from('kyorangtalk_group_rooms')
         .select('*')
-        .eq('invite_code', params.code)
+        .eq('invite_code', code)
         .single()
 
       if (!room) { setStatus('error'); return }

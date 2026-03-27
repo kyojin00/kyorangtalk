@@ -46,6 +46,7 @@ export interface GroupMessage {
   sender_id: string
   content: string
   created_at: string
+  msg_type: 'message' | 'system'
 }
 
 export interface GroupMember {

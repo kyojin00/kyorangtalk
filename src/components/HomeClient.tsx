@@ -191,13 +191,12 @@ function ChatPanel({ openChat, userId, pMap, isDark, onClose, onMarkRead }: {
           {!isMine && <div style={{ width: 26, flexShrink: 0 }}>{isLast && <Avatar p={sender} size={26} />}</div>}
 
           <div className={`flex items-end gap-1.5 ${isMine ? 'flex-row-reverse' : 'flex-row'} max-w-[70%]`}>
-            {/* 읽음/시간 - 버블 옆에 */}
             {isLast && (
-              <div className="flex flex-col items-center gap-0.5 flex-shrink-0 mb-0.5">
+              <div className="flex flex-col items-end gap-0.5 flex-shrink-0 mb-0.5">
+                <span style={{ color: t.muted, fontSize: 10, whiteSpace: 'nowrap' }}>{fmtTime(msg.created_at)}</span>
                 {isMine && openChat.type === 'dm' && dmMsg && !dmMsg.is_read && (
                   <span style={{ fontSize: 10, color: '#a78bfa', fontWeight: 700, lineHeight: 1 }}>1</span>
                 )}
-                <span style={{ color: t.muted, fontSize: 10, whiteSpace: 'nowrap' }}>{fmtTime(msg.created_at)}</span>
               </div>
             )}
 

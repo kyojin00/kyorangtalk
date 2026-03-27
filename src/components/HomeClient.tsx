@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import Image from 'next/image'
@@ -44,6 +44,7 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
   const [searching, setSearching] = useState(false)
   const [friendList, setFriendList] = useState(friends)
   const [pendingList, setPendingList] = useState(pending)
+  const [sentList, setSentList] = useState<Friend[]>([])
   const [pMap, setPMap] = useState(profileMap)
   const [roomList, setRoomList] = useState(rooms)
   const [activeRoomId, setActiveRoomId] = useState<string | null>(null)
@@ -54,8 +55,6 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
   const [chatSending, setChatSending] = useState(false)
   const [mounted, setMounted] = useState(false)
   const [showPartnerProfile, setShowPartnerProfile] = useState(false)
-
-  // 그룹채팅 상태
   const [groupRooms, setGroupRooms] = useState<GroupRoom[]>([])
   const [groupMembers, setGroupMembers] = useState<Record<string, GroupMember[]>>({})
   const [groupMemberProfiles, setGroupMemberProfiles] = useState<Record<string, Profile>>({})
@@ -70,20 +69,20 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
   const [showGroupInfo, setShowGroupInfo] = useState(false)
 
   const bottomRef = useRef<HTMLDivElement>(null)
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const chatInputRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
     setMounted(true)
     const saved = localStorage.getItem('kyorangtalk-theme')
     if (saved === 'dark') setIsDark(true)
     loadGroupRooms()
+    loadSentRequests()
   }, [])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [activeMessages, activeGroupMessages])
 
-  // DM 실시간
   useEffect(() => {
     if (!activeRoomId || activeRoomType !== 'dm') return
     const channel = supabase.channel(`room:${activeRoomId}`)
@@ -93,7 +92,6 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
     return () => { supabase.removeChannel(channel) }
   }, [activeRoomId, activeRoomType])
 
-  // 그룹 실시간
   useEffect(() => {
     if (!activeRoomId || activeRoomType !== 'group') return
     const channel = supabase.channel(`group:${activeRoomId}`)
@@ -111,21 +109,27 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
   }, [activeRoomId, activeRoomType])
 
   const loadGroupRooms = async () => {
-    const { data: memberRows } = await supabase
-      .from('kyorangtalk_group_members')
-      .select('room_id')
-      .eq('user_id', userId)
-
+    const { data: memberRows } = await supabase.from('kyorangtalk_group_members').select('room_id').eq('user_id', userId)
     if (!memberRows || memberRows.length === 0) return
-
     const roomIds = memberRows.map(m => m.room_id)
-    const { data: rooms } = await supabase
-      .from('kyorangtalk_group_rooms')
-      .select('*')
-      .in('id', roomIds)
-      .order('created_at', { ascending: false })
-
+    const { data: rooms } = await supabase.from('kyorangtalk_group_rooms').select('*').in('id', roomIds).order('created_at', { ascending: false })
     if (rooms) setGroupRooms(rooms)
+  }
+
+  const loadSentRequests = async () => {
+    const { data } = await supabase.from('kyorangtalk_friends').select('*').eq('requester_id', userId).eq('status', 'pending')
+    if (data) {
+      setSentList(data)
+      const ids = data.map(f => f.receiver_id)
+      if (ids.length > 0) {
+        const { data: profiles } = await supabase.from('kyorangtalk_profiles').select('*').in('id', ids)
+        if (profiles) {
+          const obj: Record<string, Profile> = {}
+          profiles.forEach(p => { obj[p.id] = p })
+          setPMap(prev => ({ ...prev, ...obj }))
+        }
+      }
+    }
   }
 
   const openGroupRoom = async (room: GroupRoom) => {
@@ -133,25 +137,13 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
     setActiveRoomType('group')
     setActiveGroupRoom(room)
     setShowGroupInfo(false)
-
-    const { data: msgs } = await supabase
-      .from('kyorangtalk_group_messages')
-      .select('*')
-      .eq('room_id', room.id)
-      .order('created_at', { ascending: true })
+    const { data: msgs } = await supabase.from('kyorangtalk_group_messages').select('*').eq('room_id', room.id).order('created_at', { ascending: true })
     setActiveGroupMessages(msgs || [])
-
-    const { data: members } = await supabase
-      .from('kyorangtalk_group_members')
-      .select('*')
-      .eq('room_id', room.id)
+    const { data: members } = await supabase.from('kyorangtalk_group_members').select('*').eq('room_id', room.id)
     if (members) {
       setGroupMembers(prev => ({ ...prev, [room.id]: members }))
       const memberIds = members.map(m => m.user_id)
-      const { data: profiles } = await supabase
-        .from('kyorangtalk_profiles')
-        .select('*')
-        .in('id', memberIds)
+      const { data: profiles } = await supabase.from('kyorangtalk_profiles').select('*').in('id', memberIds)
       if (profiles) {
         const profileObj: Record<string, Profile> = {}
         profiles.forEach(p => { profileObj[p.id] = p })
@@ -170,13 +162,12 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
     setTab('chats')
   }
 
-  const sendMessage = async () => {
+  const sendMessage = useCallback(async () => {
     if (!chatInput.trim() || chatSending || !activeRoomId) return
     setChatSending(true)
     const content = chatInput.trim()
     setChatInput('')
-    if (textareaRef.current) textareaRef.current.style.height = 'auto'
-
+    if (chatInputRef.current) chatInputRef.current.style.height = 'auto'
     if (activeRoomType === 'dm') {
       const { error } = await supabase.from('kyorangtalk_messages').insert({ room_id: activeRoomId, sender_id: userId, content })
       if (!error) {
@@ -187,17 +178,12 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
       await supabase.from('kyorangtalk_group_messages').insert({ room_id: activeRoomId, sender_id: userId, content })
     }
     setChatSending(false)
-  }
+  }, [chatInput, chatSending, activeRoomId, activeRoomType, userId])
 
   const handleCreateGroup = async () => {
     if (!groupName.trim()) return
     setCreatingGroup(true)
-
-    const { data: room } = await supabase
-      .from('kyorangtalk_group_rooms')
-      .insert({ name: groupName.trim(), description: groupDesc.trim() || null, created_by: userId })
-      .select().single()
-
+    const { data: room } = await supabase.from('kyorangtalk_group_rooms').insert({ name: groupName.trim(), description: groupDesc.trim() || null, created_by: userId }).select().single()
     if (room) {
       await supabase.from('kyorangtalk_group_members').insert({ room_id: room.id, user_id: userId, role: 'owner' })
       for (const member of invitedMembers) {
@@ -205,9 +191,7 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
       }
       setGroupRooms(prev => [room, ...prev])
       setShowCreateGroup(false)
-      setGroupName('')
-      setGroupDesc('')
-      setInvitedMembers([])
+      setGroupName(''); setGroupDesc(''); setInvitedMembers([])
       openGroupRoom(room)
       setTab('groups')
     }
@@ -242,9 +226,18 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
     const { data: existing } = await supabase.from('kyorangtalk_friends').select('*')
       .or(`and(requester_id.eq.${userId},receiver_id.eq.${receiverId}),and(requester_id.eq.${receiverId},receiver_id.eq.${userId})`).limit(1)
     if (existing && existing.length > 0) { alert(existing[0].status === 'accepted' ? '이미 친구예요!' : '이미 친구 요청이 있어요!'); return }
-    const { error } = await supabase.from('kyorangtalk_friends').insert({ requester_id: userId, receiver_id: receiverId })
+    const { data, error } = await supabase.from('kyorangtalk_friends').insert({ requester_id: userId, receiver_id: receiverId }).select().single()
     if (error) alert('오류가 발생했어요.')
-    else { alert('친구 요청을 보냈어요!'); setSearchResults([]) }
+    else {
+      if (data) setSentList(prev => [...prev, data])
+      setSearchResults([])
+      alert('친구 요청을 보냈어요!')
+    }
+  }
+
+  const cancelFriendRequest = async (friendId: string) => {
+    await supabase.from('kyorangtalk_friends').delete().eq('id', friendId)
+    setSentList(prev => prev.filter(f => f.id !== friendId))
   }
 
   const acceptFriend = async (friendId: string) => {
@@ -421,7 +414,8 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
     return elements
   }
 
-  const FriendsContent = () => (
+  // 함수형으로 정의 (컴포넌트 X) - input 포커스 유지
+  const renderFriends = () => (
     <div>
       <button onClick={() => router.push('/profile')} className="w-full flex items-center gap-4 px-5 py-5 transition-opacity hover:opacity-70 text-left" style={{ borderBottom: `1px solid ${t.border}` }}>
         <div className="relative">
@@ -437,10 +431,15 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
 
       <div className="px-5 py-3" style={{ borderBottom: `1px solid ${t.border}` }}>
         <div className="flex gap-2 items-center">
-          <input type="text" placeholder="닉네임으로 친구 찾기" value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+          <input
+            type="text"
+            placeholder="닉네임으로 친구 찾기"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
             className="text-sm outline-none"
-            style={{ flex: 1, minWidth: 0, background: t.inputBg, border: `1px solid ${t.inputBorder}`, color: t.text, borderRadius: 12, padding: '10px 16px' }} />
+            style={{ flex: 1, minWidth: 0, background: t.inputBg, border: `1px solid ${t.inputBorder}`, color: t.text, borderRadius: 12, padding: '10px 16px' }}
+          />
           <button onClick={handleSearch} disabled={searching}
             className="text-sm font-medium transition-opacity hover:opacity-80 flex-shrink-0"
             style={{ background: t.accent, color: 'white', borderRadius: 12, padding: '10px 16px' }}>
@@ -465,14 +464,18 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
         )}
       </div>
 
+      {/* 받은 친구 요청 */}
       {pendingList.length > 0 && (
         <div>
-          <p className="px-5 pt-4 pb-2 text-xs font-semibold tracking-wider uppercase" style={{ color: t.label }}>받은 친구 요청</p>
+          <p className="px-5 pt-4 pb-2 text-xs font-semibold tracking-wider uppercase" style={{ color: t.label }}>받은 친구 요청 {pendingList.length}</p>
           {pendingList.map((req) => (
             <div key={req.id} className="flex items-center justify-between px-5 py-3" style={{ borderBottom: `1px solid ${t.borderSub}` }}>
               <div className="flex items-center gap-3">
                 <Avatar p={pMap[req.requester_id]} size={40} />
-                <p className="text-sm font-medium" style={{ color: t.text }}>{pMap[req.requester_id]?.nickname || '알 수 없음'}</p>
+                <div>
+                  <p className="text-sm font-medium" style={{ color: t.text }}>{pMap[req.requester_id]?.nickname || '알 수 없음'}</p>
+                  <p className="text-xs mt-0.5" style={{ color: t.muted }}>친구 요청을 보냈어요</p>
+                </div>
               </div>
               <div className="flex gap-2">
                 <button onClick={() => acceptFriend(req.id)} className="text-xs px-3 py-1.5 rounded-full font-medium text-white flex-shrink-0" style={{ background: t.accent }}>수락</button>
@@ -483,6 +486,26 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
         </div>
       )}
 
+      {/* 보낸 친구 요청 */}
+      {sentList.length > 0 && (
+        <div>
+          <p className="px-5 pt-4 pb-2 text-xs font-semibold tracking-wider uppercase" style={{ color: t.label }}>보낸 친구 요청 {sentList.length}</p>
+          {sentList.map((req) => (
+            <div key={req.id} className="flex items-center justify-between px-5 py-3" style={{ borderBottom: `1px solid ${t.borderSub}` }}>
+              <div className="flex items-center gap-3">
+                <Avatar p={pMap[req.receiver_id]} size={40} />
+                <div>
+                  <p className="text-sm font-medium" style={{ color: t.text }}>{pMap[req.receiver_id]?.nickname || '알 수 없음'}</p>
+                  <p className="text-xs mt-0.5" style={{ color: t.muted }}>수락 대기 중</p>
+                </div>
+              </div>
+              <button onClick={() => cancelFriendRequest(req.id)} className="text-xs px-3 py-1.5 rounded-full flex-shrink-0" style={{ background: t.inputBg, color: t.muted }}>취소</button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* 친구 목록 */}
       {friendList.length > 0 && (
         <div>
           <p className="px-5 pt-4 pb-2 text-xs font-semibold tracking-wider uppercase" style={{ color: t.label }}>친구 {friendList.length}명</p>
@@ -505,7 +528,7 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
         </div>
       )}
 
-      {friendList.length === 0 && pendingList.length === 0 && (
+      {friendList.length === 0 && pendingList.length === 0 && sentList.length === 0 && (
         <div className="text-center py-20">
           <p className="text-4xl mb-4">🐱</p>
           <p className="text-sm" style={{ color: t.muted }}>아직 친구가 없어요<br />닉네임으로 검색해보세요</p>
@@ -514,7 +537,7 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
     </div>
   )
 
-  const ChatsContent = ({ onRoomClick }: { onRoomClick: (id: string) => void }) => (
+  const renderChats = (onRoomClick: (id: string) => void) => (
     <div>
       {roomList.length === 0 ? (
         <div className="text-center py-20">
@@ -542,16 +565,13 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
     </div>
   )
 
-  const GroupsContent = ({ onGroupClick }: { onGroupClick: (room: GroupRoom) => void }) => (
+  const renderGroups = (onGroupClick: (room: GroupRoom) => void) => (
     <div>
       <div className="px-5 py-3" style={{ borderBottom: `1px solid ${t.border}` }}>
-        <button onClick={() => setShowCreateGroup(true)}
-          className="w-full py-2.5 rounded-xl text-sm font-medium text-white"
-          style={{ background: t.accent }}>
+        <button onClick={() => setShowCreateGroup(true)} className="w-full py-2.5 rounded-xl text-sm font-medium text-white" style={{ background: t.accent }}>
           + 새 그룹 만들기
         </button>
       </div>
-
       {groupRooms.length === 0 ? (
         <div className="text-center py-20">
           <p className="text-4xl mb-4">🏠</p>
@@ -578,7 +598,7 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
     </div>
   )
 
-  const SettingsContent = () => (
+  const renderSettings = () => (
     <div className="p-5 space-y-4">
       <button onClick={() => router.push('/profile')} className="w-full flex items-center gap-4 p-4 rounded-2xl text-left transition-opacity hover:opacity-70" style={{ background: t.surface, border: `1px solid ${t.border}` }}>
         <Avatar p={profile} size={48} />
@@ -609,13 +629,19 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
   const activePartner = activeRoom ? getPartner(activeRoom) : null
   const currentGroupMembers = activeGroupRoom ? (groupMembers[activeGroupRoom.id] ?? []) : []
 
-  const ChatInput = () => (
+  const renderChatInput = () => (
     <div className="flex-shrink-0 flex gap-3 items-end px-6 py-4" style={{ background: t.surface, borderTop: `1px solid ${t.border}` }}>
       <textarea
-        ref={textareaRef}
+        ref={chatInputRef}
         value={chatInput}
-        onChange={(e) => { setChatInput(e.target.value); e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px' }}
-        onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage() } }}
+        onChange={(e) => {
+          setChatInput(e.target.value)
+          e.target.style.height = 'auto'
+          e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px'
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage() }
+        }}
         placeholder="메시지를 입력하세요..."
         rows={1}
         className="flex-1 resize-none rounded-2xl px-4 py-2.5 text-sm outline-none"
@@ -636,59 +662,42 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
           <div className="rounded-3xl p-6 w-full max-w-md mx-4" style={{ background: t.surface }}>
             <div className="flex items-center justify-between mb-5">
               <h3 className="font-bold text-base" style={{ color: t.text }}>새 그룹 만들기</h3>
-              <button onClick={() => { setShowCreateGroup(false); setInvitedMembers([]); setGroupName(''); setGroupDesc('') }}
-                className="text-sm" style={{ color: t.muted }}>✕</button>
+              <button onClick={() => { setShowCreateGroup(false); setInvitedMembers([]); setGroupName(''); setGroupDesc('') }} className="text-sm" style={{ color: t.muted }}>✕</button>
             </div>
-
             <div className="space-y-3">
               <input type="text" placeholder="그룹 이름 *" value={groupName} onChange={e => setGroupName(e.target.value)}
-                className="w-full text-sm rounded-xl px-4 py-3 outline-none"
-                style={{ background: t.inputBg, border: `1px solid ${t.inputBorder}`, color: t.text }} />
+                className="w-full text-sm rounded-xl px-4 py-3 outline-none" style={{ background: t.inputBg, border: `1px solid ${t.inputBorder}`, color: t.text }} />
               <input type="text" placeholder="그룹 설명 (선택)" value={groupDesc} onChange={e => setGroupDesc(e.target.value)}
-                className="w-full text-sm rounded-xl px-4 py-3 outline-none"
-                style={{ background: t.inputBg, border: `1px solid ${t.inputBorder}`, color: t.text }} />
-
-              {/* 멤버 초대 */}
+                className="w-full text-sm rounded-xl px-4 py-3 outline-none" style={{ background: t.inputBg, border: `1px solid ${t.inputBorder}`, color: t.text }} />
               <div>
                 <p className="text-xs font-medium mb-2" style={{ color: t.muted }}>멤버 초대</p>
                 <div className="flex gap-2">
                   <input type="text" placeholder="닉네임 검색" value={groupInviteQuery} onChange={e => setGroupInviteQuery(e.target.value)}
                     onKeyDown={e => e.key === 'Enter' && handleGroupInviteSearch()}
-                    className="flex-1 text-sm rounded-xl px-4 py-2.5 outline-none"
-                    style={{ background: t.inputBg, border: `1px solid ${t.inputBorder}`, color: t.text }} />
-                  <button onClick={handleGroupInviteSearch}
-                    className="text-sm px-4 py-2.5 rounded-xl text-white"
-                    style={{ background: t.accent }}>검색</button>
+                    className="flex-1 text-sm rounded-xl px-4 py-2.5 outline-none" style={{ background: t.inputBg, border: `1px solid ${t.inputBorder}`, color: t.text }} />
+                  <button onClick={handleGroupInviteSearch} className="text-sm px-4 py-2.5 rounded-xl text-white" style={{ background: t.accent }}>검색</button>
                 </div>
-
                 {groupInviteResults.length > 0 && (
                   <div className="mt-2 rounded-xl overflow-hidden" style={{ border: `1px solid ${t.border}` }}>
                     {groupInviteResults.map((r, i) => (
-                      <div key={r.id} className="flex items-center justify-between px-3 py-2.5"
-                        style={{ background: t.surface, borderTop: i > 0 ? `1px solid ${t.borderSub}` : 'none' }}>
+                      <div key={r.id} className="flex items-center justify-between px-3 py-2.5" style={{ background: t.surface, borderTop: i > 0 ? `1px solid ${t.borderSub}` : 'none' }}>
                         <div className="flex items-center gap-2">
                           <Avatar p={r} size={32} />
                           <p className="text-sm" style={{ color: t.text }}>{r.nickname}</p>
                         </div>
                         {invitedMembers.find(m => m.id === r.id) ? (
-                          <button onClick={() => setInvitedMembers(prev => prev.filter(m => m.id !== r.id))}
-                            className="text-xs px-2.5 py-1 rounded-full"
-                            style={{ background: t.accentLight, color: t.accentText }}>취소</button>
+                          <button onClick={() => setInvitedMembers(prev => prev.filter(m => m.id !== r.id))} className="text-xs px-2.5 py-1 rounded-full" style={{ background: t.accentLight, color: t.accentText }}>취소</button>
                         ) : (
-                          <button onClick={() => setInvitedMembers(prev => [...prev, r])}
-                            className="text-xs px-2.5 py-1 rounded-full text-white"
-                            style={{ background: t.accent }}>초대</button>
+                          <button onClick={() => setInvitedMembers(prev => [...prev, r])} className="text-xs px-2.5 py-1 rounded-full text-white" style={{ background: t.accent }}>초대</button>
                         )}
                       </div>
                     ))}
                   </div>
                 )}
-
                 {invitedMembers.length > 0 && (
                   <div className="flex flex-wrap gap-2 mt-2">
                     {invitedMembers.map(m => (
-                      <div key={m.id} className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs"
-                        style={{ background: t.accentLight, color: t.accentText }}>
+                      <div key={m.id} className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs" style={{ background: t.accentLight, color: t.accentText }}>
                         {m.nickname}
                         <button onClick={() => setInvitedMembers(prev => prev.filter(x => x.id !== m.id))}>✕</button>
                       </div>
@@ -697,24 +706,18 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
                 )}
               </div>
             </div>
-
             <div className="flex gap-3 mt-5">
-              <button onClick={handleCreateGroup} disabled={!groupName.trim() || creatingGroup}
-                className="flex-1 py-3 rounded-xl text-sm font-bold text-white disabled:opacity-50"
-                style={{ background: t.accent }}>
+              <button onClick={handleCreateGroup} disabled={!groupName.trim() || creatingGroup} className="flex-1 py-3 rounded-xl text-sm font-bold text-white disabled:opacity-50" style={{ background: t.accent }}>
                 {creatingGroup ? '만드는 중...' : '만들기'}
               </button>
-              <button onClick={() => { setShowCreateGroup(false); setInvitedMembers([]); setGroupName(''); setGroupDesc('') }}
-                className="px-5 py-3 rounded-xl text-sm"
-                style={{ background: t.inputBg, color: t.muted }}>취소</button>
+              <button onClick={() => { setShowCreateGroup(false); setInvitedMembers([]); setGroupName(''); setGroupDesc('') }} className="px-5 py-3 rounded-xl text-sm" style={{ background: t.inputBg, color: t.muted }}>취소</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* ── PC 레이아웃 ── */}
+      {/* PC 레이아웃 */}
       <div className="hidden md:flex h-screen overflow-hidden" style={{ minWidth: '680px' }}>
-
         {/* 아이콘 사이드바 */}
         <div className="flex flex-col items-center py-6 gap-3 flex-shrink-0" style={{ width: 68, background: t.sidebarBg, borderRight: `1px solid ${t.border}` }}>
           <div className="mb-2"><Avatar p={profile} size={34} /></div>
@@ -737,10 +740,10 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
             </h2>
           </div>
           <div className="flex-1 overflow-y-auto">
-            {tab === 'friends' && FriendsContent()}
-            {tab === 'chats' && ChatsContent({ onRoomClick: (id) => openRoom(id) })}
-            {tab === 'groups' && GroupsContent({ onGroupClick: (room) => openGroupRoom(room) })}
-            {tab === 'settings' && SettingsContent()}
+            {tab === 'friends' && renderFriends()}
+            {tab === 'chats' && renderChats((id) => openRoom(id))}
+            {tab === 'groups' && renderGroups((room) => openGroupRoom(room))}
+            {tab === 'settings' && renderSettings()}
           </div>
         </div>
 
@@ -749,7 +752,6 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
           {activeRoomId ? (
             <>
               <div className="flex-1 flex flex-col overflow-hidden">
-                {/* 채팅 헤더 */}
                 <div className="flex-shrink-0 flex items-center gap-3 px-6 h-14" style={{ background: t.surface, borderBottom: `1px solid ${t.border}` }}>
                   {activeRoomType === 'dm' ? (
                     <>
@@ -758,9 +760,7 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
                         <p className="font-semibold text-sm" style={{ color: t.text }}>{activePartner?.nickname || '알 수 없음'}</p>
                         {activePartner?.status_message && <p className="text-xs" style={{ color: t.muted, fontSize: 11 }}>{activePartner.status_message}</p>}
                       </button>
-                      <button onClick={() => setShowPartnerProfile(prev => !prev)}
-                        className="w-8 h-8 rounded-xl flex items-center justify-center text-sm"
-                        style={{ background: showPartnerProfile ? t.accentLight : 'transparent', color: showPartnerProfile ? t.accentText : t.muted }}>👤</button>
+                      <button onClick={() => setShowPartnerProfile(prev => !prev)} className="w-8 h-8 rounded-xl flex items-center justify-center text-sm" style={{ background: showPartnerProfile ? t.accentLight : 'transparent', color: showPartnerProfile ? t.accentText : t.muted }}>👤</button>
                     </>
                   ) : (
                     <>
@@ -769,23 +769,19 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
                         <p className="font-semibold text-sm" style={{ color: t.text }}>{activeGroupRoom?.name}</p>
                         <p className="text-xs" style={{ color: t.muted, fontSize: 11 }}>{currentGroupMembers.length}명</p>
                       </button>
-                      <button onClick={() => setShowGroupInfo(prev => !prev)}
-                        className="w-8 h-8 rounded-xl flex items-center justify-center text-sm"
-                        style={{ background: showGroupInfo ? t.accentLight : 'transparent', color: showGroupInfo ? t.accentText : t.muted }}>👥</button>
+                      <button onClick={() => setShowGroupInfo(prev => !prev)} className="w-8 h-8 rounded-xl flex items-center justify-center text-sm" style={{ background: showGroupInfo ? t.accentLight : 'transparent', color: showGroupInfo ? t.accentText : t.muted }}>👥</button>
                     </>
                   )}
                 </div>
-
                 <div className="flex-1 overflow-y-auto px-6 py-4">
                   {mounted && activeRoomType === 'dm' && renderDMMessages()}
                   {mounted && activeRoomType === 'group' && renderGroupMessages()}
                   <div ref={bottomRef} />
                 </div>
-
-                <ChatInput />
+                {renderChatInput()}
               </div>
 
-              {/* DM 파트너 프로필 */}
+              {/* DM 프로필 사이드패널 */}
               {showPartnerProfile && activePartner && activeRoomType === 'dm' && (
                 <div className="flex-shrink-0 flex flex-col overflow-y-auto" style={{ width: 260, borderLeft: `1px solid ${t.border}`, background: t.surface }}>
                   <div className="relative h-28 flex-shrink-0" style={{ background: 'linear-gradient(135deg, #a78bfa, #7c3aed)' }}>
@@ -802,7 +798,7 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
                 </div>
               )}
 
-              {/* 그룹 멤버 목록 */}
+              {/* 그룹 멤버 사이드패널 */}
               {showGroupInfo && activeGroupRoom && activeRoomType === 'group' && (
                 <div className="flex-shrink-0 flex flex-col overflow-y-auto" style={{ width: 260, borderLeft: `1px solid ${t.border}`, background: t.surface }}>
                   <div className="relative h-28 flex-shrink-0 flex items-end pb-4 px-5" style={{ background: 'linear-gradient(135deg, #f59e0b, #ef4444)' }}>
@@ -821,19 +817,13 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
                           <Avatar p={mp} size={36} />
                           <div className="flex-1 min-w-0">
                             <p className="text-sm font-medium truncate" style={{ color: t.text }}>{mp?.nickname || '알 수 없음'}</p>
-                            {member.role === 'owner' && (
-                              <p className="text-xs" style={{ color: '#f59e0b' }}>방장</p>
-                            )}
+                            {member.role === 'owner' && <p className="text-xs" style={{ color: '#f59e0b' }}>방장</p>}
                           </div>
                         </div>
                       )
                     })}
                     <div className="p-4">
-                      <button onClick={() => leaveGroup(activeGroupRoom.id)}
-                        className="w-full py-2.5 rounded-xl text-sm font-medium"
-                        style={{ background: 'rgba(239,68,68,0.1)', color: '#ef4444' }}>
-                        그룹 나가기
-                      </button>
+                      <button onClick={() => leaveGroup(activeGroupRoom.id)} className="w-full py-2.5 rounded-xl text-sm font-medium" style={{ background: 'rgba(239,68,68,0.1)', color: '#ef4444' }}>그룹 나가기</button>
                     </div>
                   </div>
                 </div>
@@ -849,7 +839,7 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
         </div>
       </div>
 
-      {/* ── 모바일 레이아웃 ── */}
+      {/* 모바일 레이아웃 */}
       <div className="flex flex-col w-full md:hidden">
         <header className="sticky top-0 z-50" style={{ background: t.headerBg, backdropFilter: 'blur(20px)', borderBottom: `1px solid ${t.border}` }}>
           <div className="max-w-lg mx-auto px-5 h-14 flex items-center">
@@ -866,10 +856,10 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
           </div>
         </header>
         <div className="flex-1 max-w-lg mx-auto w-full">
-          {tab === 'friends' && FriendsContent()}
-          {tab === 'chats' && ChatsContent({ onRoomClick: (id) => router.push(`/chat/${id}`) })}
-          {tab === 'groups' && GroupsContent({ onGroupClick: (room) => { openGroupRoom(room); router.push(`/group/${room.id}`) } })}
-          {tab === 'settings' && SettingsContent()}
+          {tab === 'friends' && renderFriends()}
+          {tab === 'chats' && renderChats((id) => router.push(`/chat/${id}`))}
+          {tab === 'groups' && renderGroups((room) => { openGroupRoom(room); router.push(`/group/${room.id}`) })}
+          {tab === 'settings' && renderSettings()}
         </div>
       </div>
 

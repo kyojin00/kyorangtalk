@@ -104,11 +104,22 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
     const content = input.trim()
     setInput('')
     if (inputRef.current) inputRef.current.style.height = 'auto'
+
     if (openChat.type === 'dm') {
-      await supabase.from('kyorangtalk_messages').insert({ room_id: openChat.id, sender_id: userId, content, is_read: false })
-      await supabase.from('kyorangtalk_rooms').update({ last_message: content, last_message_at: new Date().toISOString() }).eq('id', openChat.id)
+      const { data: newMsg } = await supabase
+        .from('kyorangtalk_messages')
+        .insert({ room_id: openChat.id, sender_id: userId, content, is_read: false })
+        .select().single()
+      if (newMsg) setMessages(prev => [...prev, newMsg])
+      await supabase.from('kyorangtalk_rooms')
+        .update({ last_message: content, last_message_at: new Date().toISOString() })
+        .eq('id', openChat.id)
     } else {
-      await supabase.from('kyorangtalk_group_messages').insert({ room_id: openChat.id, sender_id: userId, content })
+      const { data: newMsg } = await supabase
+        .from('kyorangtalk_group_messages')
+        .insert({ room_id: openChat.id, sender_id: userId, content })
+        .select().single()
+      if (newMsg) setGroupMessages(prev => [...prev, newMsg])
     }
     setSending(false)
   }

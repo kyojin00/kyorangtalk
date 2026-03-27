@@ -25,8 +25,8 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
   const [showInfo, setShowInfo] = useState(false)
   const [inviteCode, setInviteCode] = useState(openChat.groupRoom?.invite_code ?? '')
   const [isFriendGroup, setIsFriendGroup] = useState(openChat.groupRoom?.is_friend_group ?? false)
+  const [isPublicGroup, setIsPublicGroup] = useState(openChat.groupRoom?.is_public ?? false)
   const [copied, setCopied] = useState(false)
-  const [groupUnread, setGroupUnread] = useState(0)
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const t = useThemeColors(isDark)
@@ -42,7 +42,7 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, groupMessages])
 
-  // DM 읽음 폴링
+  // DM 읽음 폴링 (5초)
   useEffect(() => {
     if (openChat.type !== 'dm') return
     const interval = setInterval(async () => {
@@ -58,7 +58,7 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
           return updated ? { ...m, is_read: true } : m
         }))
       }
-    }, 5000)
+    }, 3000)
     return () => clearInterval(interval)
   }, [openChat.id, openChat.type])
 
@@ -76,7 +76,10 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
           }
         })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'kyorangtalk_messages', filter: `room_id=eq.${openChat.id}` },
-        (p) => setMessages(prev => prev.map(m => m.id === p.new.id ? p.new as Message : m)))
+        (p) => {
+          const updated = p.new as Message
+          setMessages(prev => prev.map(m => m.id === updated.id ? updated : m))
+        })
       .subscribe()
     return () => { supabase.removeChannel(ch) }
   }, [openChat.id, openChat.type])
@@ -90,18 +93,17 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
           const msg = p.new as GroupMessage
           if (msg.sender_id !== userId) {
             setGroupMessages(prev => [...prev, msg])
-            if (!gProfiles[msg.sender_id]) {
+            if (!gProfiles[msg.sender_id] && msg.sender_id !== 'system') {
               const { data } = await supabase.from('kyorangtalk_profiles').select('*').eq('id', msg.sender_id).single()
               if (data) setGProfiles(prev => ({ ...prev, [data.id]: data }))
             }
-            // 읽음 처리
             await markGroupRead()
             onMarkRead(openChat.id)
           }
         })
       .subscribe()
     return () => { supabase.removeChannel(ch) }
-  }, [openChat.id, openChat.type])
+  }, [openChat.id, openChat.type, gProfiles])
 
   const markGroupRead = async () => {
     await supabase.from('kyorangtalk_group_reads').upsert({
@@ -109,19 +111,35 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
       room_id: openChat.id,
       last_read_at: new Date().toISOString(),
     }, { onConflict: 'user_id,room_id' })
-    setGroupUnread(0)
     onMarkRead(openChat.id)
   }
 
   const loadDM = async () => {
-    const { data } = await supabase.from('kyorangtalk_messages').select('*').eq('room_id', openChat.id).order('created_at', { ascending: true })
+    const { data } = await supabase
+      .from('kyorangtalk_messages')
+      .select('*')
+      .eq('room_id', openChat.id)
+      .order('created_at', { ascending: true })
     setMessages(data || [])
-    await supabase.from('kyorangtalk_messages').update({ is_read: true }).eq('room_id', openChat.id).neq('sender_id', userId).eq('is_read', false)
-    onMarkRead(openChat.id)
+    // 상대방 메시지 읽음 처리
+    const unread = (data || []).filter(m => m.sender_id !== userId && !m.is_read)
+    if (unread.length > 0) {
+      await supabase
+        .from('kyorangtalk_messages')
+        .update({ is_read: true })
+        .in('id', unread.map(m => m.id))
+      // 로컬 state도 즉시 업데이트
+      setMessages(prev => prev.map(m => unread.find(u => u.id === m.id) ? { ...m, is_read: true } : m))
+      onMarkRead(openChat.id)
+    }
   }
 
   const loadGroup = async () => {
-    const { data: msgs } = await supabase.from('kyorangtalk_group_messages').select('*').eq('room_id', openChat.id).order('created_at', { ascending: true })
+    const { data: msgs } = await supabase
+      .from('kyorangtalk_group_messages')
+      .select('*')
+      .eq('room_id', openChat.id)
+      .order('created_at', { ascending: true })
     setGroupMessages(msgs || [])
 
     const { data: members } = await supabase.from('kyorangtalk_group_members').select('*').eq('room_id', openChat.id)
@@ -136,13 +154,17 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
       }
     }
 
-    const { data: room } = await supabase.from('kyorangtalk_group_rooms').select('invite_code, is_friend_group').eq('id', openChat.id).single()
+    const { data: room } = await supabase
+      .from('kyorangtalk_group_rooms')
+      .select('invite_code, is_friend_group, is_public')
+      .eq('id', openChat.id)
+      .single()
     if (room) {
       setInviteCode(room.invite_code ?? '')
       setIsFriendGroup(room.is_friend_group ?? false)
+      setIsPublicGroup(room.is_public ?? false)
     }
 
-    // 읽음 처리
     await markGroupRead()
   }
 
@@ -152,17 +174,20 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
     const content = input.trim()
     setInput('')
     if (inputRef.current) inputRef.current.style.height = 'auto'
+
     if (openChat.type === 'dm') {
       const { data: newMsg } = await supabase
         .from('kyorangtalk_messages')
         .insert({ room_id: openChat.id, sender_id: userId, content, is_read: false })
         .select().single()
       if (newMsg) setMessages(prev => [...prev, newMsg])
-      await supabase.from('kyorangtalk_rooms').update({ last_message: content, last_message_at: new Date().toISOString() }).eq('id', openChat.id)
+      await supabase.from('kyorangtalk_rooms')
+        .update({ last_message: content, last_message_at: new Date().toISOString() })
+        .eq('id', openChat.id)
     } else {
       const { data: newMsg } = await supabase
         .from('kyorangtalk_group_messages')
-        .insert({ room_id: openChat.id, sender_id: userId, content })
+        .insert({ room_id: openChat.id, sender_id: userId, content, msg_type: 'message' })
         .select().single()
       if (newMsg) setGroupMessages(prev => [...prev, newMsg])
       await markGroupRead()
@@ -178,9 +203,19 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
 
   const leaveGroup = async () => {
     if (!confirm('그룹에서 나갈까요?')) return
+    // 나가는 시스템 메시지
+    if (isPublicGroup) {
+      const myProfile = gProfiles[userId]
+      await supabase.from('kyorangtalk_group_messages').insert({
+        room_id: openChat.id,
+        sender_id: userId,
+        content: `${myProfile?.nickname || '누군가'}님이 나갔어요.`,
+        msg_type: 'system',
+      })
+    }
     await supabase.from('kyorangtalk_group_members').delete().eq('room_id', openChat.id).eq('user_id', userId)
     await supabase.from('kyorangtalk_group_reads').delete().eq('room_id', openChat.id).eq('user_id', userId)
-    onLeaveGroup(openChat.id) // 즉시 state 업데이트
+    onLeaveGroup(openChat.id)
     onClose(openChat.id)
   }
 
@@ -190,8 +225,9 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
     const prev = list[i - 1], next = list[i + 1]
     const showDate = !prev || !isSameDay(prev.created_at, msg.created_at)
     const isMine = msg.sender_id === userId
-    const isFirst = !prev || prev.sender_id !== msg.sender_id || !isSameMin(prev.created_at, msg.created_at)
-    const isLast = !next || next.sender_id !== msg.sender_id || !isSameMin(msg.created_at, next.created_at)
+    const isSystem = (msg as GroupMessage).msg_type === 'system'
+    const isFirst = !prev || prev.sender_id !== msg.sender_id || !isSameMin(prev.created_at, msg.created_at) || (prev as GroupMessage).msg_type === 'system'
+    const isLast = !next || next.sender_id !== msg.sender_id || !isSameMin(msg.created_at, next.created_at) || (next as GroupMessage).msg_type === 'system'
     const sender = openChat.type === 'group' ? gProfiles[msg.sender_id] : partner
     const dmMsg = openChat.type === 'dm' ? msg as Message : null
 
@@ -202,31 +238,39 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
             <span className="text-xs px-3 py-1 rounded-full" style={{ background: t.datePill, color: t.muted }}>{fmtDate(msg.created_at)}</span>
           </div>
         )}
-        <div className={`flex items-end gap-1.5 ${isMine ? 'justify-end' : 'justify-start'} ${!isFirst ? 'mt-0.5' : 'mt-3'}`}>
-          {!isMine && <div style={{ width: 26, flexShrink: 0 }}>{isLast && <Avatar p={sender} size={26} />}</div>}
-          <div className="flex items-end gap-1.5 flex-row max-w-[70%]">
-            {isLast && (
-              <div className="flex flex-col items-end gap-0.5 flex-shrink-0 mb-0.5">
-                <span style={{ color: t.muted, fontSize: 10, whiteSpace: 'nowrap' }}>{fmtTime(msg.created_at)}</span>
-                {isMine && openChat.type === 'dm' && dmMsg && !dmMsg.is_read && (
-                  <span style={{ fontSize: 10, color: '#a78bfa', fontWeight: 700, lineHeight: 1 }}>1</span>
-                )}
-              </div>
-            )}
-            <div className="flex flex-col">
-              {!isMine && isFirst && <p className="text-xs mb-1 px-1" style={{ color: t.muted }}>{sender?.nickname || '알 수 없음'}</p>}
-              <div className="px-3.5 py-2 text-sm leading-relaxed"
-                style={{
-                  background: isMine ? t.myBubble : t.theirBubble,
-                  color: isMine ? 'white' : t.text,
-                  border: isMine ? 'none' : `1px solid ${t.theirBorder}`,
-                  borderRadius: isMine ? `16px 16px ${isLast ? '4px' : '16px'} 16px` : `16px 16px 16px ${isLast ? '4px' : '16px'}`,
-                }}>
-                {msg.content}
+
+        {/* 시스템 메시지 */}
+        {isSystem ? (
+          <div className="flex justify-center my-2">
+            <span className="text-xs px-3 py-1.5 rounded-full" style={{ background: t.datePill, color: t.muted }}>{msg.content}</span>
+          </div>
+        ) : (
+          <div className={`flex items-end gap-1.5 ${isMine ? 'justify-end' : 'justify-start'} ${!isFirst ? 'mt-0.5' : 'mt-3'}`}>
+            {!isMine && <div style={{ width: 26, flexShrink: 0 }}>{isLast && <Avatar p={sender} size={26} />}</div>}
+            <div className="flex items-end gap-1.5 flex-row max-w-[70%]">
+              {isLast && (
+                <div className="flex flex-col items-end gap-0.5 flex-shrink-0 mb-0.5">
+                  <span style={{ color: t.muted, fontSize: 10, whiteSpace: 'nowrap' }}>{fmtTime(msg.created_at)}</span>
+                  {isMine && openChat.type === 'dm' && dmMsg && !dmMsg.is_read && (
+                    <span style={{ fontSize: 10, color: '#a78bfa', fontWeight: 700, lineHeight: 1 }}>1</span>
+                  )}
+                </div>
+              )}
+              <div className="flex flex-col">
+                {!isMine && isFirst && <p className="text-xs mb-1 px-1" style={{ color: t.muted }}>{sender?.nickname || '알 수 없음'}</p>}
+                <div className="px-3.5 py-2 text-sm leading-relaxed"
+                  style={{
+                    background: isMine ? t.myBubble : t.theirBubble,
+                    color: isMine ? 'white' : t.text,
+                    border: isMine ? 'none' : `1px solid ${t.theirBorder}`,
+                    borderRadius: isMine ? `16px 16px ${isLast ? '4px' : '16px'} 16px` : `16px 16px 16px ${isLast ? '4px' : '16px'}`,
+                  }}>
+                  {msg.content}
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        )}
       </div>
     )
   })

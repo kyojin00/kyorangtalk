@@ -30,9 +30,7 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
   const [pMap, setPMap] = useState(profileMap)
   const [roomList, setRoomList] = useState(rooms)
   const [openChats, setOpenChats] = useState<OpenChat[]>([])
-  // 그룹 탭용 (초대링크 방)
   const [myGroupRooms, setMyGroupRooms] = useState<GroupRoom[]>([])
-  // 채팅 탭용 (친구 그룹방)
   const [chatTabGroups, setChatTabGroups] = useState<GroupRoom[]>([])
   const [publicRooms, setPublicRooms] = useState<GroupRoom[]>([])
   const [unreadMap, setUnreadMap] = useState<Record<string, number>>({})
@@ -61,19 +59,22 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
   }
 
   const loadGroupUnreadCounts = async () => {
-    // 내 마지막 읽음 시각
     const { data: reads } = await supabase.from('kyorangtalk_group_reads').select('room_id, last_read_at').eq('user_id', userId)
     const readMap: Record<string, string> = {}
     reads?.forEach(r => { readMap[r.room_id] = r.last_read_at })
 
-    // 그룹별 안읽은 메시지 수
     const { data: memberRows } = await supabase.from('kyorangtalk_group_members').select('room_id').eq('user_id', userId)
     if (!memberRows?.length) return
 
     const counts: Record<string, number> = {}
     for (const row of memberRows) {
       const lastRead = readMap[row.room_id]
-      let query = supabase.from('kyorangtalk_group_messages').select('id', { count: 'exact', head: true }).eq('room_id', row.room_id).neq('sender_id', userId)
+      let query = supabase
+        .from('kyorangtalk_group_messages')
+        .select('id', { count: 'exact', head: true })
+        .eq('room_id', row.room_id)
+        .neq('sender_id', userId)
+        .eq('msg_type', 'message')
       if (lastRead) query = query.gt('created_at', lastRead)
       const { count } = await query
       if (count && count > 0) counts[row.room_id] = count
@@ -91,7 +92,6 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
     if (!memberRows?.length) return
     const { data } = await supabase.from('kyorangtalk_group_rooms').select('*').in('id', memberRows.map(m => m.room_id)).order('created_at', { ascending: false })
     if (data) {
-      // 친구 그룹방은 채팅탭, 일반 그룹방은 그룹탭
       setMyGroupRooms(data.filter(r => !r.is_friend_group))
       setChatTabGroups(data.filter(r => r.is_friend_group))
     }
@@ -114,11 +114,16 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
     }
   }
 
-  const openDMChat = (room: Room) => { if (!openChats.find(c => c.id === room.id)) setOpenChats(prev => [...prev, { id: room.id, type: 'dm', room }]) }
-  const openGroupChat = (groupRoom: GroupRoom) => { if (!openChats.find(c => c.id === groupRoom.id)) setOpenChats(prev => [...prev, { id: groupRoom.id, type: 'group', groupRoom }]) }
+  const openDMChat = (room: Room) => {
+    if (!openChats.find(c => c.id === room.id)) setOpenChats(prev => [...prev, { id: room.id, type: 'dm', room }])
+  }
+
+  const openGroupChat = (groupRoom: GroupRoom) => {
+    if (!openChats.find(c => c.id === groupRoom.id)) setOpenChats(prev => [...prev, { id: groupRoom.id, type: 'group', groupRoom }])
+  }
+
   const closeChat = (id: string) => setOpenChats(prev => prev.filter(c => c.id !== id))
 
-  // 방 나가면 즉시 목록에서 제거
   const handleLeaveGroup = (roomId: string) => {
     setMyGroupRooms(prev => prev.filter(r => r.id !== roomId))
     setChatTabGroups(prev => prev.filter(r => r.id !== roomId))
@@ -133,6 +138,16 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
     if (nr) { setRoomList(prev => [nr, ...prev]); openDMChat(nr); setTab('chats') }
   }
 
+  // 공개방 참여 시 입장 메시지 전송
+  const sendJoinMessage = async (roomId: string, nickname: string) => {
+    await supabase.from('kyorangtalk_group_messages').insert({
+      room_id: roomId,
+      sender_id: userId,
+      content: `${nickname}님이 입장했어요.`,
+      msg_type: 'system',
+    })
+  }
+
   const joinGroupByCode = async () => {
     if (!joinCode.trim()) return
     setJoiningCode(true)
@@ -143,6 +158,8 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
       await supabase.from('kyorangtalk_group_members').insert({ room_id: room.id, user_id: userId, role: 'member' })
       await supabase.from('kyorangtalk_group_rooms').update({ member_count: (room.member_count || 1) + 1 }).eq('id', room.id)
       setMyGroupRooms(prev => [room, ...prev])
+      // 공개방이면 입장 메시지
+      if (room.is_public) await sendJoinMessage(room.id, profile.nickname)
     }
     setJoinCode('')
     openGroupChat(room)
@@ -156,6 +173,8 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
       await supabase.from('kyorangtalk_group_members').insert({ room_id: room.id, user_id: userId, role: 'member' })
       await supabase.from('kyorangtalk_group_rooms').update({ member_count: (room.member_count || 1) + 1 }).eq('id', room.id)
       setMyGroupRooms(prev => [room, ...prev])
+      // 공개방 입장 메시지
+      await sendJoinMessage(room.id, profile.nickname)
     }
     openGroupChat(room)
     setTab('groups')
@@ -176,7 +195,10 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
     if (!error && data) { setSentList(prev => [...prev, data]); setSearchResults([]); alert('친구 요청을 보냈어요!') }
   }
 
-  const cancelFriendRequest = async (id: string) => { await supabase.from('kyorangtalk_friends').delete().eq('id', id); setSentList(prev => prev.filter(f => f.id !== id)) }
+  const cancelFriendRequest = async (id: string) => {
+    await supabase.from('kyorangtalk_friends').delete().eq('id', id)
+    setSentList(prev => prev.filter(f => f.id !== id))
+  }
 
   const acceptFriend = async (id: string) => {
     await supabase.from('kyorangtalk_friends').update({ status: 'accepted' }).eq('id', id)
@@ -189,27 +211,28 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
     }
   }
 
-  const rejectFriend = async (id: string) => { await supabase.from('kyorangtalk_friends').delete().eq('id', id); setPendingList(prev => prev.filter(p => p.id !== id)) }
+  const rejectFriend = async (id: string) => {
+    await supabase.from('kyorangtalk_friends').delete().eq('id', id)
+    setPendingList(prev => prev.filter(p => p.id !== id))
+  }
+
   const getFriendUserId = (f: Friend) => f.requester_id === userId ? f.receiver_id : f.requester_id
   const getPartner = (r: Room) => pMap[r.user1_id === userId ? r.user2_id : r.user1_id]
   const toggleTheme = (dark: boolean) => { setIsDark(dark); localStorage.setItem('kyorangtalk-theme', dark ? 'dark' : 'light') }
 
   const dmUnread = Object.values(unreadMap).reduce((a, b) => a + b, 0)
-  const groupUnread = Object.values(groupUnreadMap).reduce((a, b) => a + b, 0)
-  const totalChatUnread = dmUnread + Object.values(groupUnreadMap).filter((_, i) => chatTabGroups.map(r => r.id).includes(Object.keys(groupUnreadMap)[i])).reduce((a, b) => a + b, 0)
-  const totalGroupUnread = Object.entries(groupUnreadMap).filter(([id]) => myGroupRooms.map(r => r.id).includes(id)).reduce((a, [, b]) => a + b, 0)
-
+  const chatGroupUnread = chatTabGroups.reduce((a, r) => a + (groupUnreadMap[r.id] || 0), 0)
+  const groupTabUnread = myGroupRooms.reduce((a, r) => a + (groupUnreadMap[r.id] || 0), 0)
   const joinedIds = new Set(myGroupRooms.map(r => r.id))
   const filteredPublic = publicRooms.filter(r => !exploreSearch || r.name.includes(exploreSearch) || r.description?.includes(exploreSearch))
 
   const tabs = [
     { key: 'friends' as const, icon: '👥', badge: pendingList.length },
-    { key: 'chats' as const, icon: '💬', badge: dmUnread + chatTabGroups.reduce((a, r) => a + (groupUnreadMap[r.id] || 0), 0) },
-    { key: 'groups' as const, icon: '🏠', badge: totalGroupUnread },
+    { key: 'chats' as const, icon: '💬', badge: dmUnread + chatGroupUnread },
+    { key: 'groups' as const, icon: '🏠', badge: groupTabUnread },
     { key: 'explore' as const, icon: '🔍', badge: 0 },
     { key: 'settings' as const, icon: '⚙️', badge: 0 },
   ]
-
   const tabLabel: Record<string, string> = { friends: '친구', chats: '채팅', groups: '그룹', explore: '탐색', settings: '설정' }
 
   return (
@@ -233,7 +256,6 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
           onClose={() => setShowCreateChat(false)}
           onStartDM={async (fId) => { await startChat(fId); setTab('chats') }}
           onStartGroup={(room) => {
-            // 친구 그룹방 → 채팅탭에만 추가 (그룹탭 X)
             setChatTabGroups(prev => [room, ...prev])
             openGroupChat(room)
             setTab('chats')
@@ -343,13 +365,12 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
             </div>
           )}
 
-          {/* 채팅 탭 - DM + 친구 그룹방 */}
+          {/* 채팅 탭 */}
           {tab === 'chats' && (
             <div>
               <div className="px-4 py-3" style={{ borderBottom: `1px solid ${t.border}` }}>
                 <button onClick={() => setShowCreateChat(true)} className="w-full py-2 rounded-xl text-sm font-medium text-white" style={{ background: t.accent }}>+ 새 채팅</button>
               </div>
-              {/* DM */}
               {roomList.map(room => {
                 const partner = getPartner(room); const unread = unreadMap[room.id] || 0; const isOpen = !!openChats.find(c => c.id === room.id)
                 return (
@@ -368,7 +389,6 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
                   </button>
                 )
               })}
-              {/* 친구 그룹방 */}
               {chatTabGroups.map(room => {
                 const unread = groupUnreadMap[room.id] || 0; const isOpen = !!openChats.find(c => c.id === room.id)
                 return (
@@ -393,7 +413,7 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
             </div>
           )}
 
-          {/* 그룹 탭 - 일반 그룹방만 */}
+          {/* 그룹 탭 */}
           {tab === 'groups' && (
             <div>
               <div className="px-4 py-3 space-y-2" style={{ borderBottom: `1px solid ${t.border}` }}>

@@ -88,7 +88,7 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
   const startChat = async (friendUserId: string) => {
     const u1 = userId < friendUserId ? userId : friendUserId
     const u2 = userId < friendUserId ? friendUserId : userId
-    const { data: ex } = await supabase.from('kyorangtalk_rooms').select('*').eq('user1_id', u1).eq('user2_id', u2).single()
+    const { data: ex } = await supabase.from('kyorangtalk_rooms').select('*').eq('user1_id', u1).eq('user2_id', u2).maybeSingle()
     if (ex) { openDMChat(ex); setTab('chats'); return }
     const { data: nr } = await supabase.from('kyorangtalk_rooms').insert({ user1_id: u1, user2_id: u2 }).select().single()
     if (nr) { setRoomList(prev => [nr, ...prev]); openDMChat(nr); setTab('chats') }

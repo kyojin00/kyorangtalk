@@ -36,6 +36,7 @@ export interface GroupRoom {
   created_by: string
   invite_code: string
   is_public: boolean
+  is_friend_group: boolean
   member_count: number
 }
 

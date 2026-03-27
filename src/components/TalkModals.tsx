@@ -34,11 +34,20 @@ export function CreateGroupModal({ userId, isDark, onClose, onCreated }: {
     setCreating(true)
     const { data: room } = await supabase
       .from('kyorangtalk_group_rooms')
-      .insert({ name: groupName.trim(), description: groupDesc.trim() || null, created_by: userId, is_public: isPublic, member_count: invitedMembers.length + 1 })
+      .insert({
+        name: groupName.trim(),
+        description: groupDesc.trim() || null,
+        created_by: userId,
+        is_public: isPublic,
+        is_friend_group: false,
+        member_count: invitedMembers.length + 1,
+      })
       .select().single()
     if (room) {
       await supabase.from('kyorangtalk_group_members').insert({ room_id: room.id, user_id: userId, role: 'owner' })
-      for (const m of invitedMembers) await supabase.from('kyorangtalk_group_members').insert({ room_id: room.id, user_id: m.id, role: 'member' })
+      for (const m of invitedMembers) {
+        await supabase.from('kyorangtalk_group_members').insert({ room_id: room.id, user_id: m.id, role: 'member' })
+      }
       onCreated(room)
     }
     setCreating(false)
@@ -107,7 +116,7 @@ export function CreateGroupModal({ userId, isDark, onClose, onCreated }: {
   )
 }
 
-// 새 채팅 모달 (친구 선택 → 1명이면 DM, 2명 이상이면 그룹이지만 채팅 탭에 표시)
+// 새 채팅 모달 (친구 선택 → 1명이면 DM, 2명 이상이면 친구 그룹방)
 export function CreateChatModal({ userId, profile, friendList, pMap, isDark, onClose, onStartDM, onStartGroup }: {
   userId: string
   profile: Profile
@@ -131,22 +140,29 @@ export function CreateChatModal({ userId, profile, friendList, pMap, isDark, onC
     setCreating(true)
 
     if (selected.length === 1) {
-      // 1명 → DM
       onStartDM(selected[0].id)
       onClose()
       setCreating(false)
       return
     }
 
-    // 2명 이상 → 그룹채팅이지만 채팅 탭에 표시
+    // 2명 이상 → 친구 그룹방 (is_friend_group: true, 초대링크 불필요)
     const name = roomName.trim() || `${profile.nickname}, ${selected.map(f => f.nickname).join(', ')}`
     const { data: room } = await supabase
       .from('kyorangtalk_group_rooms')
-      .insert({ name, created_by: userId, is_public: false, member_count: selected.length + 1 })
+      .insert({
+        name,
+        created_by: userId,
+        is_public: false,
+        is_friend_group: true,
+        member_count: selected.length + 1,
+      })
       .select().single()
     if (room) {
       await supabase.from('kyorangtalk_group_members').insert({ room_id: room.id, user_id: userId, role: 'owner' })
-      for (const f of selected) await supabase.from('kyorangtalk_group_members').insert({ room_id: room.id, user_id: f.id, role: 'member' })
+      for (const f of selected) {
+        await supabase.from('kyorangtalk_group_members').insert({ room_id: room.id, user_id: f.id, role: 'member' })
+      }
       onStartGroup(room)
     }
     onClose()

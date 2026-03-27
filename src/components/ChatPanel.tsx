@@ -23,6 +23,7 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
   const [sending, setSending] = useState(false)
   const [showInfo, setShowInfo] = useState(false)
   const [inviteCode, setInviteCode] = useState(openChat.groupRoom?.invite_code ?? '')
+  const [isFriendGroup, setIsFriendGroup] = useState(openChat.groupRoom?.is_friend_group ?? false)
   const [copied, setCopied] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -65,7 +66,6 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'kyorangtalk_messages', filter: `room_id=eq.${openChat.id}` },
         async (p) => {
           const msg = p.new as Message
-          // 상대방 메시지만 추가 (내 메시지는 sendMessage에서 직접 추가)
           if (msg.sender_id !== userId) {
             setMessages(prev => [...prev, msg])
             await supabase.from('kyorangtalk_messages').update({ is_read: true }).eq('id', msg.id)
@@ -106,16 +106,25 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
   const loadGroup = async () => {
     const { data: msgs } = await supabase.from('kyorangtalk_group_messages').select('*').eq('room_id', openChat.id).order('created_at', { ascending: true })
     setGroupMessages(msgs || [])
+
+    // 멤버 조회 (RLS 수정으로 전체 멤버 조회 가능)
     const { data: members } = await supabase.from('kyorangtalk_group_members').select('*').eq('room_id', openChat.id)
     if (members) {
       setGroupMembers(members)
       const ids = members.map(m => m.user_id)
       const { data: profiles } = await supabase.from('kyorangtalk_profiles').select('*').in('id', ids)
-      if (profiles) { const obj: Record<string, Profile> = {}; profiles.forEach(p => { obj[p.id] = p }); setGProfiles(obj) }
+      if (profiles) {
+        const obj: Record<string, Profile> = {}
+        profiles.forEach(p => { obj[p.id] = p })
+        setGProfiles(obj)
+      }
     }
-    if (!inviteCode) {
-      const { data: room } = await supabase.from('kyorangtalk_group_rooms').select('invite_code').eq('id', openChat.id).single()
-      if (room) setInviteCode(room.invite_code)
+
+    // 방 정보 조회 (초대코드, 친구그룹 여부)
+    const { data: room } = await supabase.from('kyorangtalk_group_rooms').select('invite_code, is_friend_group').eq('id', openChat.id).single()
+    if (room) {
+      setInviteCode(room.invite_code ?? '')
+      setIsFriendGroup(room.is_friend_group ?? false)
     }
   }
 
@@ -176,9 +185,8 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
         )}
         <div className={`flex items-end gap-1.5 ${isMine ? 'justify-end' : 'justify-start'} ${!isFirst ? 'mt-0.5' : 'mt-3'}`}>
           {!isMine && <div style={{ width: 26, flexShrink: 0 }}>{isLast && <Avatar p={sender} size={26} />}</div>}
-
-          {/* 시간/읽음 항상 버블 왼쪽 (flex-row 고정) */}
           <div className="flex items-end gap-1.5 flex-row max-w-[70%]">
+            {/* 시간/읽음 - 버블 왼쪽 하단 */}
             {isLast && (
               <div className="flex flex-col items-end gap-0.5 flex-shrink-0 mb-0.5">
                 <span style={{ color: t.muted, fontSize: 10, whiteSpace: 'nowrap' }}>{fmtTime(msg.created_at)}</span>
@@ -215,7 +223,9 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
             <p className="font-semibold text-xs truncate" style={{ color: t.text }}>
               {openChat.type === 'dm' ? partner?.nickname : openChat.groupRoom?.name}
             </p>
-            {openChat.type === 'group' && <p style={{ color: t.muted, fontSize: 10 }}>{groupMembers.length}명</p>}
+            {openChat.type === 'group' && (
+              <p style={{ color: t.muted, fontSize: 10 }}>{groupMembers.length}명</p>
+            )}
           </div>
           {openChat.type === 'group' && (
             <button onClick={() => setShowInfo(p => !p)}
@@ -254,16 +264,22 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
       {/* 그룹 정보 패널 */}
       {showInfo && openChat.type === 'group' && (
         <div className="flex-shrink-0 flex flex-col overflow-y-auto" style={{ width: 200, borderLeft: `1px solid ${t.border}`, background: t.surface }}>
-          <div className="p-4">
-            <p className="text-xs font-bold mb-3" style={{ color: t.muted }}>초대 링크</p>
-            <button onClick={copyInviteLink}
-              className="w-full text-xs py-2 rounded-xl font-medium"
-              style={{ background: copied ? 'rgba(124,58,237,0.15)' : t.inputBg, color: copied ? '#a78bfa' : t.muted, border: `1px solid ${t.border}` }}>
-              {copied ? '복사됨!' : '🔗 링크 복사'}
-            </button>
-            <p className="text-xs mt-2 text-center break-all" style={{ color: t.muted, fontSize: 10 }}>코드: {inviteCode}</p>
-          </div>
-          <div style={{ borderTop: `1px solid ${t.border}` }}>
+
+          {/* 친구 그룹방이 아닐 때만 초대링크 표시 */}
+          {!isFriendGroup && (
+            <div className="p-4" style={{ borderBottom: `1px solid ${t.border}` }}>
+              <p className="text-xs font-bold mb-3" style={{ color: t.muted }}>초대 링크</p>
+              <button onClick={copyInviteLink}
+                className="w-full text-xs py-2 rounded-xl font-medium"
+                style={{ background: copied ? 'rgba(124,58,237,0.15)' : t.inputBg, color: copied ? '#a78bfa' : t.muted, border: `1px solid ${t.border}` }}>
+                {copied ? '복사됨!' : '🔗 링크 복사'}
+              </button>
+              <p className="text-xs mt-2 text-center break-all" style={{ color: t.muted, fontSize: 10 }}>코드: {inviteCode}</p>
+            </div>
+          )}
+
+          {/* 멤버 목록 */}
+          <div>
             <p className="px-4 pt-3 pb-1.5 text-xs font-bold" style={{ color: t.muted }}>멤버 {groupMembers.length}명</p>
             {groupMembers.map(m => (
               <div key={m.id} className="flex items-center gap-2 px-4 py-2.5" style={{ borderBottom: `1px solid ${t.borderSub}` }}>
@@ -275,6 +291,7 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
               </div>
             ))}
           </div>
+
           <div className="p-4">
             <button onClick={leaveGroup} className="w-full py-2 rounded-xl text-xs font-medium"
               style={{ background: 'rgba(239,68,68,0.08)', color: '#ef4444' }}>나가기</button>

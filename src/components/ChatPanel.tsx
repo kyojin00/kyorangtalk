@@ -127,30 +127,36 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
     loadGroup()
 
     const sub = supabase.channel(`group-${roomId}`)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'kyorangtalk_group_messages', filter: `room_id=eq.${roomId}` }, async payload => {
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'kyorangtalk_group_messages',
+        filter: `room_id=eq.${roomId}`
+      }, async payload => {
         setGroupMessages(prev => [...prev, payload.new as GroupMessage])
         const now = new Date().toISOString()
         await supabase.from('kyorangtalk_group_reads')
           .upsert({ room_id: roomId, user_id: userId, last_read_at: now }, { onConflict: 'room_id,user_id' })
         setReadMap(prev => ({ ...prev, [userId]: now }))
         onMarkRead(roomId)
-        // 다른 멤버 읽음 상태도 갱신
+        // 다른 멤버 읽음 상태 갱신
         const { data: reads } = await supabase.from('kyorangtalk_group_reads').select('user_id, last_read_at').eq('room_id', roomId)
         const rm: Record<string, string> = {}
         ;(reads ?? []).forEach(r => { rm[r.user_id] = r.last_read_at })
         setReadMap(rm)
       })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'kyorangtalk_group_members', filter: `room_id=eq.${roomId}` }, async () => {
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'kyorangtalk_group_members',
+        filter: `room_id=eq.${roomId}`
+      }, async () => {
         const { data: members } = await supabase.from('kyorangtalk_group_members').select('*').eq('room_id', roomId)
         setGroupMembers(members ?? [])
       })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'kyorangtalk_group_reads', filter: `room_id=eq.${roomId}` }, async () => {
-        const { data: reads } = await supabase.from('kyorangtalk_group_reads').select('user_id, last_read_at').eq('room_id', roomId)
-        const rm: Record<string, string> = {}
-        ;(reads ?? []).forEach(r => { rm[r.user_id] = r.last_read_at })
-        setReadMap(rm)
+      .subscribe(status => {
+        console.log(`[그룹 Realtime ${roomId}]`, status)
       })
-      .subscribe()
 
     return () => { supabase.removeChannel(sub) }
   }, [openChat.id])

@@ -42,7 +42,10 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
   const [exploreSearch, setExploreSearch] = useState('')
   const [exploreCategory, setExploreCategory] = useState('전체')
   const [showPanel, setShowPanel] = useState(true)
-  const openChatsRef = useRef(openChats)
+  const [notifyEnabled, setNotifyEnabled] = useState(true)
+  useEffect(() => {
+    setNotifyEnabled(localStorage.getItem('kyorangtalk-notify') !== 'off')
+  }, [])
   useEffect(() => { openChatsRef.current = openChats }, [openChats])
   const pMapRef = useRef(pMap)
   useEffect(() => { pMapRef.current = pMap }, [pMap])
@@ -54,7 +57,8 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
   // 토스트 알림
   const [toasts, setToasts] = useState<{ id: string; roomId: string; roomName: string; content: string; senderNick: string; type: 'dm' | 'group' }[]>([])
   const addToast = (toast: typeof toasts[0]) => {
-    setToasts(prev => [...prev.slice(-4), toast]) // 최대 5개
+    if (localStorage.getItem('kyorangtalk-notify') === 'off') return
+    setToasts(prev => [...prev.slice(-4), toast])
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== toast.id)), 4000)
   }
 
@@ -695,13 +699,13 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
                     <p className="text-xs" style={{ color: t.muted }}>새 메시지 토스트 알림</p>
                   </div>
                   <button onClick={() => {
-                    const v = localStorage.getItem('kyorangtalk-notify') !== 'off'
-                    localStorage.setItem('kyorangtalk-notify', v ? 'off' : 'on')
-                    window.dispatchEvent(new Event('notify-change'))
+                    const next = !notifyEnabled
+                    setNotifyEnabled(next)
+                    localStorage.setItem('kyorangtalk-notify', next ? 'on' : 'off')
                   }} className="w-11 h-6 rounded-full transition-all relative flex-shrink-0"
-                    style={{ background: localStorage.getItem('kyorangtalk-notify') !== 'off' ? t.accent : t.inputBorder }}>
+                    style={{ background: notifyEnabled ? t.accent : t.inputBorder }}>
                     <div className="w-5 h-5 rounded-full bg-white absolute top-0.5 transition-all"
-                      style={{ left: localStorage.getItem('kyorangtalk-notify') !== 'off' ? '22px' : '2px' }} />
+                      style={{ left: notifyEnabled ? '22px' : '2px' }} />
                   </button>
                 </div>
               </div>
@@ -721,11 +725,11 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
                   <span className="text-sm" style={{ color: t.text }}>이용약관</span>
                   <span style={{ color: t.muted, fontSize: 12 }}>↗</span>
                 </a>
-                <a href="mailto:rywls123450@gmail.com"
+                <a href="mailto:rywls12450@gmail.com"
                   className="flex items-center justify-between px-4 py-3 hover:opacity-70"
                   style={{ display: 'flex', textDecoration: 'none' }}>
                   <span className="text-sm" style={{ color: t.text }}>문의하기</span>
-                  <span style={{ color: t.muted, fontSize: 12 }}>rywls123450@gmail.com</span>
+                  <span style={{ color: t.muted, fontSize: 12 }}>rywls12450@gmail.com</span>
                 </a>
               </div>
 

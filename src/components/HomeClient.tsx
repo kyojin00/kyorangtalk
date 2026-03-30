@@ -583,6 +583,7 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
           <div key={chat.id} style={{ width: `${Math.max(300, Math.floor(100 / openChats.length))}%`, minWidth: '300px', maxWidth: '600px', flexShrink: 0, flexGrow: 1 }}>
             <ChatPanel
               openChat={chat} userId={userId} pMap={pMap} isDark={isDark}
+              friendList={friendList}
               onClose={closeChat}
               onMarkRead={handleMarkRead}
               onLeaveGroup={handleLeaveGroup}

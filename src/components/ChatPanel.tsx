@@ -6,7 +6,7 @@ import { Avatar, GroupAvatar } from './TalkAvatars'
 import { useThemeColors, fmtTime, fmtDate, isSameDay, isSameMin } from './useTheme'
 import { OpenChat, Message, GroupMessage, GroupMember, Profile } from './types'
 
-export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onMarkRead, onLeaveGroup, onMessageSent }: {
+export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onMarkRead, onLeaveGroup, onMessageSent, friendList }: {
   openChat: OpenChat
   userId: string
   pMap: Record<string, Profile>
@@ -15,6 +15,7 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
   onMarkRead: (roomId: string) => void
   onLeaveGroup: (roomId: string) => void
   onMessageSent: (roomId: string, content: string, type: 'dm' | 'group') => void
+  friendList?: { id: string; requester_id: string; receiver_id: string }[]
 }) {
   const supabase = createClient()
   const [messages, setMessages] = useState<Message[]>([])
@@ -29,6 +30,8 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
   const [copied, setCopied] = useState(false)
   const [kickingId, setKickingId] = useState<string | null>(null)
   const [roomDeleted, setRoomDeleted] = useState(false)
+  const [showInvite, setShowInvite] = useState(false)
+  const [invitingId, setInvitingId] = useState<string | null>(null)
   // { user_id: last_read_at } — 멤버별 마지막 읽은 시각
   const [readMap, setReadMap] = useState<Record<string, string>>({})
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -129,14 +132,8 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
     loadGroup()
 
     const sub = supabase.channel(`group-${roomId}`)
-      .on('postgres_changes', {
-        event: 'INSERT',
-        schema: 'public',
-        table: 'kyorangtalk_group_messages',
-        filter: `room_id=eq.${roomId}`
-      }, async payload => {
-        const newMsg = payload.new as GroupMessage
-        // 내가 보낸 메시지는 낙관적 업데이트로 이미 있으므로 중복 무시
+      .on('broadcast', { event: 'new_message' }, async payload => {
+        const newMsg = payload.payload as GroupMessage
         if (newMsg.sender_id === userId) return
         setGroupMessages(prev => prev.find(m => m.id === newMsg.id) ? prev : [...prev, newMsg])
         const now = new Date().toISOString()
@@ -144,10 +141,12 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
           .upsert({ room_id: roomId, user_id: userId, last_read_at: now }, { onConflict: 'room_id,user_id' })
         setReadMap(prev => ({ ...prev, [userId]: now }))
         onMarkRead(roomId)
-        const { data: reads } = await supabase.from('kyorangtalk_group_reads').select('user_id, last_read_at').eq('room_id', roomId)
-        const rm: Record<string, string> = {}
-        ;(reads ?? []).forEach(r => { rm[r.user_id] = r.last_read_at })
-        setReadMap(rm)
+      })
+      .on('broadcast', { event: 'owner_left' }, () => {
+        // 오픈방 방장이 나감 - 멤버 목록 갱신
+        supabase.from('kyorangtalk_group_members').select('*').eq('room_id', roomId).then(({ data }) => {
+          setGroupMembers(data ?? [])
+        })
       })
       .on('postgres_changes', {
         event: '*',
@@ -215,7 +214,11 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
       setGroupMessages(prev => prev.filter(m => m.id !== tempId))
     } else if (data) {
       setGroupMessages(prev => prev.map(m => m.id === tempId ? data as GroupMessage : m))
-      // broadcast로 멤버들 목록 즉시 갱신
+      // 같은 채널로 broadcast → 상대방 채팅창 즉시 반영
+      await supabase.channel(`group-${openChat.groupRoom!.id}`).send({
+        type: 'broadcast', event: 'new_message', payload: data
+      })
+      // HomeClient 목록용 broadcast
       await supabase.channel(`room-update-${openChat.groupRoom!.id}`).send({
         type: 'broadcast', event: 'new_message',
         payload: { room_id: openChat.groupRoom!.id, content, created_at: now, sender_id: userId, type: 'group' }
@@ -238,18 +241,47 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
     const roomId = openChat.groupRoom.id
     const myNick = gProfiles[userId]?.nickname || '누군가'
 
-    if (isOwner) {
-      if (!confirm('방장이 나가면 채팅방이 삭제됩니다.\n정말 나가시겠어요?')) return
-      // cascade 설정으로 members, messages, reads 자동 삭제
-      await supabase.from('kyorangtalk_group_rooms').delete().eq('id', roomId)
-    } else {
+    if (roomType === 'open' && isOwner) {
+      // 오픈방 방장 나가기 → 방 유지
+      if (!confirm('오픈방을 나가시겠어요?\n방은 유지되지만 채팅이 비활성화됩니다.')) return
+      await supabase.from('kyorangtalk_group_members').delete().eq('room_id', roomId).eq('user_id', userId)
+      await supabase.from('kyorangtalk_group_messages').insert({ room_id: roomId, sender_id: userId, content: `${myNick}님(방장)이 나갔어요. 채팅이 비활성화됩니다.`, msg_type: 'system' })
+      await supabase.channel(`group-${roomId}`).send({ type: 'broadcast', event: 'owner_left', payload: {} })
+    } else if (roomType === 'open') {
+      // 오픈방 일반 멤버
       if (!confirm('채팅방을 나가시겠어요?')) return
       await supabase.from('kyorangtalk_group_members').delete().eq('room_id', roomId).eq('user_id', userId)
       await supabase.from('kyorangtalk_group_messages').insert({ room_id: roomId, sender_id: userId, content: `${myNick}님이 나갔어요.`, msg_type: 'system' })
+    } else {
+      // 그룹방 - 방장 개념 없이 누구나 그냥 나가기
+      if (!confirm('채팅방을 나가시겠어요?')) return
+      await supabase.from('kyorangtalk_group_members').delete().eq('room_id', roomId).eq('user_id', userId)
+      await supabase.from('kyorangtalk_group_messages').insert({ room_id: roomId, sender_id: userId, content: `${myNick}님이 나갔어요.`, msg_type: 'system' })
+      await supabase.channel(`group-${roomId}`).send({
+        type: 'broadcast', event: 'new_message',
+        payload: { id: crypto.randomUUID(), room_id: roomId, sender_id: userId, content: `${myNick}님이 나갔어요.`, created_at: new Date().toISOString(), msg_type: 'system' }
+      })
     }
 
     onLeaveGroup(roomId)
     onClose(openChat.id)
+  }
+
+  // 친구 초대 (그룹방)
+  const inviteFriend = async (friendUserId: string) => {
+    if (!openChat.groupRoom) return
+    setInvitingId(friendUserId)
+    const roomId = openChat.groupRoom.id
+    const { data: ex } = await supabase.from('kyorangtalk_group_members').select('id').eq('room_id', roomId).eq('user_id', friendUserId).maybeSingle()
+    if (ex) { alert('이미 멤버예요!'); setInvitingId(null); return }
+    await supabase.from('kyorangtalk_group_members').insert({ room_id: roomId, user_id: friendUserId, role: 'member' })
+    const friendNick = pMap[friendUserId]?.nickname || '친구'
+    await supabase.from('kyorangtalk_group_messages').insert({ room_id: roomId, sender_id: userId, content: `${friendNick}님이 초대됐어요.`, msg_type: 'system' })
+    await supabase.channel(`group-${roomId}`).send({
+      type: 'broadcast', event: 'new_message',
+      payload: { id: crypto.randomUUID(), room_id: roomId, sender_id: userId, content: `${friendNick}님이 초대됐어요.`, created_at: new Date().toISOString(), msg_type: 'system' }
+    })
+    setInvitingId(null)
   }
 
   // 멤버 내보내기 (방장 전용)
@@ -276,6 +308,9 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
+
+  const hasOwner = openChat.type !== 'group' || groupMembers.some(m => m.role === 'owner')
+  const inputDisabled = roomDeleted || (openChat.type === 'group' && !hasOwner)
 
   const title = openChat.type === 'dm'
     ? partner?.nickname ?? '...'
@@ -393,9 +428,11 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
 
         {/* 입력창 */}
         <div className="px-3 pb-3 pt-2 flex-shrink-0" style={{ borderTop: `1px solid ${t.borderSub}` }}>
-          {roomDeleted ? (
+          {inputDisabled ? (
             <div className="flex items-center justify-center rounded-2xl px-4 py-3" style={{ background: t.inputBg, border: `1px solid ${t.inputBorder}` }}>
-              <p className="text-xs" style={{ color: t.muted }}>방장이 채팅방을 삭제했어요. 채팅을 할 수 없습니다.</p>
+              <p className="text-xs" style={{ color: t.muted }}>
+                {roomDeleted ? '방장이 채팅방을 삭제했어요.' : '방장이 나가서 채팅을 할 수 없습니다.'}
+              </p>
             </div>
           ) : (
             <div className="flex items-end gap-2 rounded-2xl px-3 py-2" style={{ background: t.inputBg, border: `1px solid ${t.inputBorder}` }}>
@@ -429,16 +466,51 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
             )}
           </div>
 
-          {/* 초대 링크 (비공개 방 또는 방장) */}
-          {(roomType === 'group' || isOwner) && (
+          {/* 오픈방 초대 링크 */}
+          {roomType === 'open' && (
             <div className="px-4 py-3" style={{ borderBottom: `1px solid ${t.borderSub}` }}>
-              <p className="text-xs font-bold mb-2" style={{ color: t.muted }}>초대</p>
+              <p className="text-xs font-bold mb-2" style={{ color: t.muted }}>초대 링크</p>
               <button onClick={copyInviteLink}
                 className="w-full py-2 rounded-xl text-xs font-medium flex items-center justify-center gap-1.5"
                 style={{ background: copied ? 'rgba(124,58,237,0.15)' : t.inputBg, color: copied ? '#a78bfa' : t.muted, border: `1px solid ${t.border}` }}>
                 {copied ? '복사됨!' : '🔗 링크 복사'}
               </button>
-              <p className="text-xs mt-2 text-center break-all" style={{ color: t.muted, fontSize: 10 }}>코드: {inviteCode}</p>
+              <p className="text-xs mt-1 text-center break-all" style={{ color: t.label, fontSize: 10 }}>코드: {inviteCode}</p>
+            </div>
+          )}
+
+          {/* 그룹방 친구 초대 */}
+          {roomType === 'group' && (
+            <div style={{ borderBottom: `1px solid ${t.borderSub}` }}>
+              <button onClick={() => setShowInvite(v => !v)}
+                className="w-full flex items-center justify-between px-4 py-2.5 text-xs font-bold"
+                style={{ color: t.muted }}>
+                <span>친구 초대</span>
+                <span>{showInvite ? '▲' : '▼'}</span>
+              </button>
+              {showInvite && (
+                <div className="pb-2">
+                  {(friendList ?? []).length === 0
+                    ? <p className="text-xs text-center py-3" style={{ color: t.label }}>친구가 없어요</p>
+                    : (friendList ?? []).map(f => {
+                      const fId = f.requester_id === userId ? f.receiver_id : f.requester_id
+                      const fp = pMap[fId]
+                      const alreadyIn = groupMembers.some(m => m.user_id === fId)
+                      return (
+                        <div key={f.id} className="flex items-center gap-2 px-4 py-1.5">
+                          <Avatar p={fp} size={24} />
+                          <p className="flex-1 text-xs truncate" style={{ color: t.text }}>{fp?.nickname || '...'}</p>
+                          <button onClick={() => inviteFriend(fId)} disabled={alreadyIn || invitingId === fId}
+                            className="text-xs px-2 py-1 rounded-lg flex-shrink-0 disabled:opacity-40"
+                            style={{ background: alreadyIn ? t.inputBg : t.accentLight, color: alreadyIn ? t.muted : t.accentText, fontSize: 10 }}>
+                            {invitingId === fId ? '...' : alreadyIn ? '참여중' : '초대'}
+                          </button>
+                        </div>
+                      )
+                    })
+                  }
+                </div>
+              )}
             </div>
           )}
 
@@ -453,20 +525,16 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
                   <Avatar p={gProfiles[m.user_id]} size={28} />
                   <div className="flex-1 min-w-0">
                     <p className="text-xs truncate" style={{ color: t.text }}>{gProfiles[m.user_id]?.nickname || '...'}{isMe ? ' (나)' : ''}</p>
-                    {isMemberOwner && <p style={{ color: '#f59e0b', fontSize: 10 }}>👑 방장</p>}
+                    {roomType === 'open' && isMemberOwner && <p style={{ color: '#f59e0b', fontSize: 10 }}>👑 방장</p>}
                   </div>
-                  {/* 방장이고 상대가 본인이 아닌 경우 내보내기 버튼 */}
-                  {isOwner && !isMe && !isMemberOwner && (
-                    <button
-                      onClick={() => kickMember(m)}
-                      disabled={kickingId === m.user_id}
-                      title="내보내기"
+                  {/* 오픈방 방장만 내보내기 가능 */}
+                  {roomType === 'open' && isOwner && !isMe && (
+                    <button onClick={() => kickMember(m)} disabled={kickingId === m.user_id} title="내보내기"
                       className="flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center opacity-50 hover:opacity-100 transition-opacity"
                       style={{ background: 'rgba(239,68,68,0.12)', color: '#ef4444' }}>
                       {kickingId === m.user_id
                         ? <span style={{ fontSize: 9 }}>...</span>
-                        : <svg width="10" height="10" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
-                      }
+                        : <svg width="10" height="10" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>}
                     </button>
                   )}
                 </div>

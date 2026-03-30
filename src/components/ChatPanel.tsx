@@ -68,6 +68,10 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
           onMarkRead(roomId)
         }
       })
+      // 읽음 처리 반영 (상대방이 읽었을 때 is_read 업데이트)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'kyorangtalk_messages', filter: `room_id=eq.${roomId}` }, payload => {
+        setMessages(prev => prev.map(m => m.id === payload.new.id ? { ...m, ...(payload.new as Message) } : m))
+      })
       .subscribe()
 
     return () => { supabase.removeChannel(sub) }
@@ -161,15 +165,6 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
     setSending(true)
     const content = input.trim()
     setInput('')
-    const msg: Message = {
-      id: crypto.randomUUID(),
-      room_id: openChat.room.id,
-      sender_id: userId,
-      content,
-      created_at: new Date().toISOString(),
-      is_read: false,
-    }
-    setMessages(prev => [...prev, msg])
     await supabase.from('kyorangtalk_messages').insert({ room_id: openChat.room!.id, sender_id: userId, content })
     await supabase.from('kyorangtalk_rooms').update({ last_message: content, last_message_at: new Date().toISOString() }).eq('id', openChat.room.id)
     setSending(false)
@@ -182,15 +177,6 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
     setSending(true)
     const content = input.trim()
     setInput('')
-    const msg: GroupMessage = {
-      id: crypto.randomUUID(),
-      room_id: openChat.groupRoom.id,
-      sender_id: userId,
-      content,
-      created_at: new Date().toISOString(),
-      msg_type: 'message',
-    }
-    setGroupMessages(prev => [...prev, msg])
     await supabase.from('kyorangtalk_group_messages').insert({ room_id: openChat.groupRoom!.id, sender_id: userId, content, msg_type: 'message' })
     await supabase.from('kyorangtalk_group_rooms').update({ last_message: content, last_message_at: new Date().toISOString() }).eq('id', openChat.groupRoom.id)
     setSending(false)
@@ -278,6 +264,9 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
         unreadCount = otherMembers.length - readCount
       }
 
+      // DM 읽음 여부
+      const dmRead = openChat.type === 'dm' && isMine && (msg as Message).is_read
+
       return (
         <div key={msg.id}>
           {showDate && (
@@ -313,6 +302,10 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
                     {/* 그룹방 안읽은 수 */}
                     {unreadCount !== null && unreadCount > 0 && (
                       <span style={{ color: '#f59e0b', fontSize: 10, fontWeight: 600, lineHeight: 1 }}>{unreadCount}</span>
+                    )}
+                    {/* DM 읽음 표시 */}
+                    {dmRead && (
+                      <span style={{ color: t.accentText, fontSize: 10, lineHeight: 1 }}>읽음</span>
                     )}
                     {!hideTime && (
                       <span className="text-xs" style={{ color: t.label, fontSize: 10 }}>{fmtTime(msg.created_at)}</span>

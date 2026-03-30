@@ -76,13 +76,6 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
         const ids = new Set(Object.values(state).flatMap(s => s.map((p: any) => p.user_id)))
         presenceIdsRef.current = ids
         setPresenceIds(new Set(ids))
-        // 접속 중인 상대방은 읽은 것으로 간주 - readMap 미래 시각으로 갱신
-        const future = new Date(Date.now() + 60000).toISOString()
-        setReadMap(prev => {
-          const next = { ...prev }
-          ids.forEach(id => { if (id !== userId) next[id] = future })
-          return next
-        })
       })
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'kyorangtalk_messages', filter: `room_id=eq.${roomId}` }, payload => {
         setMessages(prev => [...prev, payload.new as Message])
@@ -206,22 +199,27 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
       .on('presence', { event: 'sync' }, () => {
         const state = sub.presenceState<{ user_id: string }>()
         const ids = new Set(Object.values(state).flatMap(s => s.map((p: any) => p.user_id)))
-        console.log('[Presence sync]', [...ids])
         presenceIdsRef.current = ids
         setPresenceIds(new Set(ids))
-        // 접속 중인 멤버는 지금 보고 있으므로 readMap을 미래 시각으로 갱신
-        const future = new Date(Date.now() + 60000).toISOString()
-        setReadMap(prev => {
+      })
+      .on('presence', { event: 'join' }, async ({ newPresences }) => {
+        // 상대방 입장 → DB에서 실제 last_read_at 로드
+        const joinedIds = (newPresences as any[]).map((p: any) => p.user_id).filter((id: string) => id !== userId)
+        if (!joinedIds.length) return
+        const { data: reads } = await supabase
+          .from('kyorangtalk_group_reads')
+          .select('user_id, last_read_at')
+          .eq('room_id', roomId)
+          .in('user_id', joinedIds)
+        if (reads) setReadMap(prev => {
           const next = { ...prev }
-          ids.forEach(id => { if (id !== userId) next[id] = future })
+          reads.forEach(r => { next[r.user_id] = r.last_read_at })
           return next
         })
       })
       .subscribe(async status => {
         console.log(`[그룹 Realtime ${roomId}]`, status)
-        if (status === 'SUBSCRIBED') {
-          await sub.track({ user_id: userId })
-        }
+        if (status === 'SUBSCRIBED') await sub.track({ user_id: userId })
       })
 
     return () => { supabase.removeChannel(sub) }

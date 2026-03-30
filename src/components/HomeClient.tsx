@@ -175,7 +175,8 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
       supabase.channel(`room-update-${id}`)
         .on('broadcast', { event: 'new_message' }, ({ payload }) => {
           if (payload.sender_id === userId) return
-          const { room_id, content, created_at, sender_id } = payload
+          const { room_id, created_at, sender_id } = payload
+          const content = payload.content || '📷 이미지'
           const isRoomOpen = openChatsRef.current.some(c => c.id === room_id)
           if (type === 'dm') {
             setRoomList(prev => {

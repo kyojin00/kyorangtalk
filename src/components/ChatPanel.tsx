@@ -307,17 +307,32 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
     const { error } = await supabase.storage.from('chat-images').upload(path, file)
     if (error) { alert('업로드 실패'); setUploading(false); return }
     const { data: { publicUrl } } = supabase.storage.from('chat-images').getPublicUrl(path)
-    // 이미지 URL을 메시지로 전송
+    const now = new Date().toISOString()
+
     if (openChat.type === 'dm' && openChat.room) {
-      await supabase.from('kyorangtalk_messages').insert({ room_id: openChat.room.id, sender_id: userId, content: '', image_url: publicUrl })
-      await supabase.from('kyorangtalk_rooms').update({ last_message: '📷 이미지', last_message_at: new Date().toISOString() }).eq('id', openChat.room.id)
-      onMessageSent(openChat.room.id, '📷 이미지', 'dm')
+      const roomId = openChat.room.id
+      await supabase.from('kyorangtalk_messages').insert({ room_id: roomId, sender_id: userId, content: '', image_url: publicUrl })
+      await supabase.from('kyorangtalk_rooms').update({ last_message: '📷 이미지', last_message_at: now }).eq('id', roomId)
+      // broadcast → 상대방 목록 + 알림
+      await supabase.channel(`room-update-${roomId}`).send({
+        type: 'broadcast', event: 'new_message',
+        payload: { room_id: roomId, content: '📷 이미지', created_at: now, sender_id: userId, type: 'dm' }
+      })
+      onMessageSent(roomId, '📷 이미지', 'dm')
     } else if (openChat.groupRoom) {
-      const { data } = await supabase.from('kyorangtalk_group_messages').insert({ room_id: openChat.groupRoom.id, sender_id: userId, content: '', image_url: publicUrl, msg_type: 'message' }).select().single()
+      const roomId = openChat.groupRoom.id
+      const { data } = await supabase.from('kyorangtalk_group_messages')
+        .insert({ room_id: roomId, sender_id: userId, content: '', image_url: publicUrl, msg_type: 'message' })
+        .select().single()
       if (data) {
+        // 채팅창 broadcast
         await groupSubRef.current?.send({ type: 'broadcast', event: 'new_message', payload: data })
-        await supabase.channel(`room-update-${openChat.groupRoom.id}`).send({ type: 'broadcast', event: 'new_message', payload: { room_id: openChat.groupRoom.id, content: '📷 이미지', created_at: data.created_at, sender_id: userId, type: 'group' } })
-        onMessageSent(openChat.groupRoom.id, '📷 이미지', 'group')
+        // 목록 + 알림 broadcast
+        await supabase.channel(`room-update-${roomId}`).send({
+          type: 'broadcast', event: 'new_message',
+          payload: { room_id: roomId, content: '📷 이미지', created_at: now, sender_id: userId, type: 'group' }
+        })
+        onMessageSent(roomId, '📷 이미지', 'group')
       }
     }
     setUploading(false)

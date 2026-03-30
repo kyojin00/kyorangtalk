@@ -384,6 +384,12 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
     setPendingList(prev => prev.filter(p => p.id !== id))
   }
 
+  const removeFriend = async (id: string) => {
+    if (!confirm('친구를 삭제하시겠어요?')) return
+    await supabase.from('kyorangtalk_friends').delete().eq('id', id)
+    setFriendList(prev => prev.filter(f => f.id !== id))
+  }
+
   const getFriendUserId = (f: Friend) => f.requester_id === userId ? f.receiver_id : f.requester_id
   const getPartner = (r: Room) => pMap[r.user1_id === userId ? r.user2_id : r.user1_id]
   const toggleTheme = (dark: boolean) => { setIsDark(dark); localStorage.setItem('kyorangtalk-theme', dark ? 'dark' : 'light') }
@@ -476,11 +482,14 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
                   {friendList.map(f => {
                     const fId = getFriendUserId(f); const fp = pMap[fId]
                     return (
-                      <div key={f.id} className="flex items-center justify-between px-4 py-2.5 hover:opacity-70" style={{ borderBottom: `1px solid ${t.borderSub}` }}>
+                      <div key={f.id} className="flex items-center justify-between px-4 py-2.5" style={{ borderBottom: `1px solid ${t.borderSub}` }}>
                         <div className="flex items-center gap-2.5"><Avatar p={fp} size={36} />
                           <div><p className="text-sm font-medium" style={{ color: t.text }}>{fp?.nickname || '알 수 없음'}</p>{fp?.status_message && <p className="text-xs truncate" style={{ color: t.muted }}>{fp.status_message}</p>}</div>
                         </div>
-                        <button onClick={() => startChat(fId)} className="text-xs px-2.5 py-1 rounded-full font-medium" style={{ background: t.accentLight, color: t.accentText, border: `1px solid ${t.accentBorder}` }}>채팅</button>
+                        <div className="flex items-center gap-1.5">
+                          <button onClick={() => startChat(fId)} className="text-xs px-2.5 py-1 rounded-full font-medium" style={{ background: t.accentLight, color: t.accentText, border: `1px solid ${t.accentBorder}` }}>채팅</button>
+                          <button onClick={() => removeFriend(f.id)} className="text-xs px-2 py-1 rounded-full" style={{ background: 'rgba(239,68,68,0.08)', color: '#ef4444' }}>삭제</button>
+                        </div>
                       </div>
                     )
                   })}

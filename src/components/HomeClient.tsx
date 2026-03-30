@@ -88,29 +88,27 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
           setUnreadMap(prev => ({ ...prev, [msg.room_id]: (prev[msg.room_id] || 0) + 1 }))
         }
       })
-      // 그룹 메시지 INSERT → 목록 last_message 직접 반영 (RLS 우회)
+      // 그룹 메시지 INSERT → 목록 last_message 직접 반영
       .on('postgres_changes', {
         event: 'INSERT',
         schema: 'public',
         table: 'kyorangtalk_group_messages',
       }, payload => {
-        const msg = payload.new as { room_id: string; content: string; created_at: string; msg_type: string }
+        const msg = payload.new as { room_id: string; content: string; created_at: string; msg_type: string; sender_id: string }
         if (msg.msg_type !== 'message') return
         const update = { last_message: msg.content, last_message_at: msg.created_at }
-        setMyGroupRooms(prev => {
+        const applyUpdate = (prev: GroupRoom[]) => {
           const idx = prev.findIndex(r => r.id === msg.room_id)
           if (idx === -1) return prev
           const updated = { ...prev[idx], ...update }
-          const rest = prev.filter(r => r.id !== msg.room_id)
-          return [updated, ...rest]
-        })
-        setChatTabGroups(prev => {
-          const idx = prev.findIndex(r => r.id === msg.room_id)
-          if (idx === -1) return prev
-          const updated = { ...prev[idx], ...update }
-          const rest = prev.filter(r => r.id !== msg.room_id)
-          return [updated, ...rest]
-        })
+          return [updated, ...prev.filter(r => r.id !== msg.room_id)]
+        }
+        setMyGroupRooms(applyUpdate)
+        setChatTabGroups(applyUpdate)
+        // 상대방 메시지면 안읽음 뱃지 추가
+        if (msg.sender_id !== userId) {
+          setGroupUnreadMap(prev => ({ ...prev, [msg.room_id]: (prev[msg.room_id] || 0) + 1 }))
+        }
       })
       .subscribe()
 

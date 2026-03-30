@@ -133,13 +133,15 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
         table: 'kyorangtalk_group_messages',
         filter: `room_id=eq.${roomId}`
       }, async payload => {
-        setGroupMessages(prev => [...prev, payload.new as GroupMessage])
+        const newMsg = payload.new as GroupMessage
+        // 내가 보낸 메시지는 낙관적 업데이트로 이미 있으므로 중복 무시
+        if (newMsg.sender_id === userId) return
+        setGroupMessages(prev => prev.find(m => m.id === newMsg.id) ? prev : [...prev, newMsg])
         const now = new Date().toISOString()
         await supabase.from('kyorangtalk_group_reads')
           .upsert({ room_id: roomId, user_id: userId, last_read_at: now }, { onConflict: 'room_id,user_id' })
         setReadMap(prev => ({ ...prev, [userId]: now }))
         onMarkRead(roomId)
-        // 다른 멤버 읽음 상태 갱신
         const { data: reads } = await supabase.from('kyorangtalk_group_reads').select('user_id, last_read_at').eq('room_id', roomId)
         const rm: Record<string, string> = {}
         ;(reads ?? []).forEach(r => { rm[r.user_id] = r.last_read_at })
@@ -184,8 +186,19 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
     setSending(true)
     const content = input.trim()
     setInput('')
-    const { error } = await supabase.from('kyorangtalk_group_messages').insert({ room_id: openChat.groupRoom!.id, sender_id: userId, content, msg_type: 'message' })
-    if (error) console.error('[그룹 메시지 전송 에러]', JSON.stringify(error))
+    const tempId = `temp-${Date.now()}`
+    const now = new Date().toISOString()
+    // 낙관적 업데이트 - 내 메시지 바로 표시
+    const tempMsg: GroupMessage = { id: tempId, room_id: openChat.groupRoom.id, sender_id: userId, content, created_at: now, msg_type: 'message' }
+    setGroupMessages(prev => [...prev, tempMsg])
+    const { data, error } = await supabase.from('kyorangtalk_group_messages').insert({ room_id: openChat.groupRoom!.id, sender_id: userId, content, msg_type: 'message' }).select().single()
+    if (error) {
+      console.error('[그룹 메시지 전송 에러]', JSON.stringify(error))
+      setGroupMessages(prev => prev.filter(m => m.id !== tempId))
+    } else if (data) {
+      // temp 메시지를 실제 메시지로 교체
+      setGroupMessages(prev => prev.map(m => m.id === tempId ? data as GroupMessage : m))
+    }
     setSending(false)
     inputRef.current?.focus()
   }

@@ -155,11 +155,6 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
           .upsert({ room_id: roomId, user_id: userId, last_read_at: now }, { onConflict: 'room_id,user_id' })
         setReadMap(prev => ({ ...prev, [userId]: now }))
         onMarkRead(roomId)
-        // 내가 읽었다고 broadcast
-        groupSubRef.current?.send({
-          type: 'broadcast', event: 'message_read',
-          payload: { user_id: userId, last_read_at: now }
-        })
       })
       .on('broadcast', { event: 'owner_left' }, () => {
         // 오픈방 방장이 나감 - 멤버 목록 갱신
@@ -368,12 +363,10 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
       const hideTime = i < msgs.length - 1 && msgs[i + 1].sender_id === msg.sender_id && isSameMin(msg.created_at, msgs[i + 1].created_at)
       const senderProfile = openChat.type === 'group' ? gProfiles[msg.sender_id] : (isMine ? undefined : partner)
 
-      // 그룹방 안읽은 멤버 수
-      // presence에 있는 멤버 = 지금 방 열고 있음 = 읽음으로 간주
-      // presence에 없는 멤버는 readMap의 last_read_at으로 판단
+      // 그룹방 안읽은 멤버 수 (시스템 메시지 제외, 모든 메시지에 표시)
       let unreadCount: number | null = null
-      if (openChat.type === 'group' && isMine && !isSystem) {
-        const otherMembers = groupMembers.filter(m => m.user_id !== userId)
+      if (openChat.type === 'group' && !isSystem) {
+        const otherMembers = groupMembers.filter(m => m.user_id !== msg.sender_id)
         const unreadMembers = otherMembers.filter(m => {
           if (presenceIdsRef.current.has(m.user_id)) return false
           const lastRead = readMap[m.user_id]
@@ -424,7 +417,7 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
                   }}>
                     {msg.content}
                   </div>
-                  <div className="flex flex-col items-end gap-0.5 flex-shrink-0">
+                  <div className={`flex flex-col gap-0.5 flex-shrink-0 ${isMine ? 'items-end' : 'items-start'}`}>
                     {/* 그룹방 안읽은 멤버 수 */}
                     {unreadCount !== null && unreadCount > 0 && (
                       <span style={{ color: '#f59e0b', fontSize: 10, fontWeight: 600, lineHeight: 1 }}>{unreadCount}</span>

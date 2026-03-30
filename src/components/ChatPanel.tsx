@@ -162,7 +162,9 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
         setReadMap(prev => ({ ...prev, [userId]: now }))
         onMarkRead(roomId)
       })
-      .on('broadcast', { event: 'owner_left' }, () => {
+      .on('broadcast', { event: 'message_deleted' }, ({ payload }) => {
+        setGroupMessages(prev => prev.map(m => m.id === payload.msg_id ? { ...m, is_deleted: true } as any : m))
+      })
         // 오픈방 방장이 나감 - 멤버 목록 갱신
         supabase.from('kyorangtalk_group_members').select('*').eq('room_id', roomId).then(({ data }) => {
           setGroupMembers(data ?? [])
@@ -425,11 +427,16 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
   const deleteMessage = async (msgId: string) => {
     setContextMenu(null)
     if (openChat.type === 'dm') {
-      await supabase.from('kyorangtalk_messages').delete().eq('id', msgId).eq('sender_id', userId)
-      setMessages(prev => prev.filter(m => m.id !== msgId))
+      await supabase.from('kyorangtalk_messages').update({ is_deleted: true }).eq('id', msgId).eq('sender_id', userId)
+      setMessages(prev => prev.map(m => m.id === msgId ? { ...m, is_deleted: true } as any : m))
     } else {
-      await supabase.from('kyorangtalk_group_messages').delete().eq('id', msgId).eq('sender_id', userId)
-      setGroupMessages(prev => prev.filter(m => m.id !== msgId))
+      await supabase.from('kyorangtalk_group_messages').update({ is_deleted: true }).eq('id', msgId).eq('sender_id', userId)
+      setGroupMessages(prev => prev.map(m => m.id === msgId ? { ...m, is_deleted: true } as any : m))
+      // 상대방에게도 broadcast
+      await groupSubRef.current?.send({
+        type: 'broadcast', event: 'message_deleted',
+        payload: { msg_id: msgId }
+      })
     }
   }
 
@@ -512,17 +519,18 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
                       borderRadius: isMine ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
                       maxWidth: '100%',
                       overflow: 'hidden',
-                      cursor: 'pointer',
+                      cursor: (msg as any).is_deleted ? 'default' : 'pointer',
                     }}
-                    onContextMenu={e => { e.preventDefault(); setContextMenu({ msgId: msg.id, x: e.clientX, y: e.clientY, isMine, content: msg.content }) }}
+                    onContextMenu={e => { if ((msg as any).is_deleted) return; e.preventDefault(); setContextMenu({ msgId: msg.id, x: e.clientX, y: e.clientY, isMine, content: msg.content }) }}
                     onTouchStart={e => {
+                      if ((msg as any).is_deleted) return
                       const t2 = setTimeout(() => setContextMenu({ msgId: msg.id, x: e.touches[0].clientX, y: e.touches[0].clientY, isMine, content: msg.content }), 500)
                       const cancel = () => { clearTimeout(t2); document.removeEventListener('touchend', cancel) }
                       document.addEventListener('touchend', cancel)
                     }}
                   >
                     {/* 답장 인용 표시 */}
-                    {(msg as any).reply_to_content && (
+                    {(msg as any).reply_to_content && !(msg as any).is_deleted && (
                       <div className="px-3 pt-2 pb-1" style={{ borderBottom: `1px solid ${isMine ? 'rgba(255,255,255,0.2)' : t.borderSub}` }}>
                         <div className="flex items-start gap-1.5">
                           <div className="w-1 rounded-full flex-shrink-0 self-stretch" style={{ background: isMine ? 'rgba(255,255,255,0.6)' : t.accent, minHeight: 12 }} />
@@ -532,14 +540,20 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
                         </div>
                       </div>
                     )}
-                    <div style={{ padding: (msg as any).image_url && !msg.content ? '4px' : '8px 12px' }}>
-                      {(msg as any).image_url && (
-                        <img src={(msg as any).image_url} alt="이미지"
-                          className="rounded-xl cursor-pointer max-w-full"
-                          style={{ maxWidth: 220, maxHeight: 220, display: 'block', objectFit: 'cover' }}
-                          onClick={() => window.open((msg as any).image_url, '_blank')} />
+                    <div style={{ padding: (msg as any).image_url && !msg.content && !(msg as any).is_deleted ? '4px' : '8px 12px' }}>
+                      {(msg as any).is_deleted ? (
+                        <span style={{ opacity: 0.5, fontStyle: 'italic', fontSize: 13 }}>삭제된 메시지입니다.</span>
+                      ) : (
+                        <>
+                          {(msg as any).image_url && (
+                            <img src={(msg as any).image_url} alt="이미지"
+                              className="rounded-xl cursor-pointer max-w-full"
+                              style={{ maxWidth: 220, maxHeight: 220, display: 'block', objectFit: 'cover' }}
+                              onClick={() => window.open((msg as any).image_url, '_blank')} />
+                          )}
+                          {msg.content && <span>{msg.content}</span>}
+                        </>
                       )}
-                      {msg.content && <span>{msg.content}</span>}
                     </div>
                   </div>
                   <div className={`flex flex-col gap-0.5 flex-shrink-0 ${isMine ? 'items-end' : 'items-start'}`}>

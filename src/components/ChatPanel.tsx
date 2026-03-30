@@ -155,10 +155,10 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
           payload: { user_id: userId, last_read_at: now }
         })
       })
-      // 다른 멤버가 읽었을 때 readMap 즉시 업데이트
+      // 다른 멤버가 읽었을 때 readMap 즉시 업데이트 (로컬 시간 사용 - clock skew 방지)
       .on('broadcast', { event: 'message_read' }, ({ payload }) => {
-        if (payload.user_id && payload.last_read_at) {
-          setReadMap(prev => ({ ...prev, [payload.user_id]: payload.last_read_at }))
+        if (payload.user_id) {
+          setReadMap(prev => ({ ...prev, [payload.user_id]: new Date(Date.now() + 60000).toISOString() }))
         }
       })
       .on('broadcast', { event: 'owner_left' }, () => {

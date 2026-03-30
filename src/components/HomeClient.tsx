@@ -435,9 +435,7 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
             {badge > 0 && <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full text-white flex items-center justify-center font-bold" style={{ background: '#ef4444', fontSize: 9 }}>{badge}</span>}
           </button>
         ))}
-        <div className="mt-auto">
-          <button onClick={async () => { await supabase.auth.signOut(); router.push('/login') }} className="w-10 h-10 rounded-xl flex items-center justify-center hover:opacity-60">🚪</button>
-        </div>
+        <div className="mt-auto" />
       </div>
 
       {/* 목록 패널 */}

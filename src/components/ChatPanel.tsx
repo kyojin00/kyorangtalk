@@ -134,17 +134,12 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
       ;(reads ?? []).forEach(r => { rm[r.user_id] = r.last_read_at })
       setReadMap(rm)
 
-      // 내 읽음 처리 + 다른 멤버에게 broadcast
+      // 내 읽음 처리
       const now = new Date().toISOString()
       await supabase.from('kyorangtalk_group_reads')
         .upsert({ room_id: roomId, user_id: userId, last_read_at: now }, { onConflict: 'room_id,user_id' })
       setReadMap(prev => ({ ...prev, [userId]: now }))
       onMarkRead(roomId)
-      // 내가 읽었다고 다른 멤버에게 알림
-      groupSubRef.current?.send({
-        type: 'broadcast', event: 'message_read',
-        payload: { user_id: userId, last_read_at: now }
-      })
     }
     loadGroup()
 
@@ -165,12 +160,6 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
           type: 'broadcast', event: 'message_read',
           payload: { user_id: userId, last_read_at: now }
         })
-      })
-      // 다른 멤버가 읽었을 때 readMap 즉시 업데이트 (로컬 시간 사용 - clock skew 방지)
-      .on('broadcast', { event: 'message_read' }, ({ payload }) => {
-        if (payload.user_id) {
-          setReadMap(prev => ({ ...prev, [payload.user_id]: new Date(Date.now() + 60000).toISOString() }))
-        }
       })
       .on('broadcast', { event: 'owner_left' }, () => {
         // 오픈방 방장이 나감 - 멤버 목록 갱신

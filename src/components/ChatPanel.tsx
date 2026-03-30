@@ -190,6 +190,7 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
       .on('presence', { event: 'sync' }, () => {
         const state = sub.presenceState<{ user_id: string }>()
         const ids = new Set(Object.values(state).flatMap(s => s.map((p: any) => p.user_id)))
+        console.log('[Presence sync]', [...ids])
         setPresenceIds(ids)
       })
       .subscribe(async status => {

@@ -32,8 +32,8 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
   const [roomDeleted, setRoomDeleted] = useState(false)
   const [showInvite, setShowInvite] = useState(false)
   const [invitingId, setInvitingId] = useState<string | null>(null)
-  // 현재 채널에 접속 중인 유저 ID 집합
   const [presenceIds, setPresenceIds] = useState<Set<string>>(new Set())
+  const presenceIdsRef = useRef<Set<string>>(new Set())
   // { user_id: last_read_at } — 오프라인 멤버 읽음 시각 (presence 없는 경우 fallback)
   const [readMap, setReadMap] = useState<Record<string, string>>({})
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -68,7 +68,15 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
     }
     load()
 
-    const sub = supabase.channel(`dm-${roomId}`)
+    const sub = supabase.channel(`dm-${roomId}`, { config: { presence: { key: userId } } })
+
+    sub
+      .on('presence', { event: 'sync' }, () => {
+        const state = sub.presenceState<{ user_id: string }>()
+        const ids = new Set(Object.values(state).flatMap(s => s.map((p: any) => p.user_id)))
+        presenceIdsRef.current = ids
+        setPresenceIds(new Set(ids))
+      })
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'kyorangtalk_messages', filter: `room_id=eq.${roomId}` }, payload => {
         setMessages(prev => [...prev, payload.new as Message])
         if ((payload.new as Message).sender_id !== userId) {
@@ -76,11 +84,12 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
           onMarkRead(roomId)
         }
       })
-      // 읽음 처리 반영 (상대방이 읽었을 때 is_read 업데이트)
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'kyorangtalk_messages', filter: `room_id=eq.${roomId}` }, payload => {
         setMessages(prev => prev.map(m => m.id === payload.new.id ? { ...m, ...(payload.new as Message) } : m))
       })
-      .subscribe()
+      .subscribe(async status => {
+        if (status === 'SUBSCRIBED') await sub.track({ user_id: userId })
+      })
 
     return () => { supabase.removeChannel(sub) }
   }, [openChat.id])
@@ -191,7 +200,8 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
         const state = sub.presenceState<{ user_id: string }>()
         const ids = new Set(Object.values(state).flatMap(s => s.map((p: any) => p.user_id)))
         console.log('[Presence sync]', [...ids])
-        setPresenceIds(ids)
+        presenceIdsRef.current = ids
+        setPresenceIds(new Set(ids))
       })
       .subscribe(async status => {
         console.log(`[그룹 Realtime ${roomId}]`, status)
@@ -364,15 +374,17 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
       if (openChat.type === 'group' && isMine && !isSystem) {
         const otherMembers = groupMembers.filter(m => m.user_id !== userId)
         const unreadMembers = otherMembers.filter(m => {
-          if (presenceIds.has(m.user_id)) return false // 지금 방에 있음 = 읽음
+          if (presenceIdsRef.current.has(m.user_id)) return false
           const lastRead = readMap[m.user_id]
           return !lastRead || lastRead < msg.created_at
         })
         unreadCount = unreadMembers.length
       }
 
-      // DM 안읽음 여부 (내가 보낸 메시지, 상대가 아직 안 읽은 경우)
-      const dmUnread = openChat.type === 'dm' && isMine && !(msg as Message).is_read
+      // DM 안읽음: 상대방이 presence에 있으면(채팅창 열고 있으면) 읽은 것으로 간주
+      const dmUnread = openChat.type === 'dm' && isMine && !(msg as Message).is_read && !presenceIdsRef.current.has(
+        openChat.room ? (openChat.room.user1_id === userId ? openChat.room.user2_id : openChat.room.user1_id) : ''
+      )
 
       return (
         <div key={msg.id}>

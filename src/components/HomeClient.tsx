@@ -52,7 +52,7 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
     loadPublicRooms()
     loadGroupUnreadCounts()
 
-    // 채널1: 내가 그룹방에 추가될 때
+    // 채널: 내가 그룹방에 추가될 때
     const subMembers = supabase.channel('my-group-joins')
       .on('postgres_changes', {
         event: 'INSERT',
@@ -71,52 +71,8 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
       })
       .subscribe()
 
-    // 채널2: DM 메시지 → 목록 반영
-    const subDm = supabase.channel('dm-list-updates')
-      .on('postgres_changes', {
-        event: 'INSERT',
-        schema: 'public',
-        table: 'kyorangtalk_messages',
-      }, payload => {
-        const msg = payload.new as { room_id: string; content: string; created_at: string; sender_id: string }
-        setRoomList(prev => {
-          const idx = prev.findIndex(r => r.id === msg.room_id)
-          if (idx === -1) return prev
-          const updated = { ...prev[idx], last_message: msg.content, last_message_at: msg.created_at }
-          return [updated, ...prev.filter(r => r.id !== msg.room_id)]
-        })
-        if (msg.sender_id !== userId) {
-          setUnreadMap(prev => ({ ...prev, [msg.room_id]: (prev[msg.room_id] || 0) + 1 }))
-        }
-      })
-      .subscribe(status => console.log('[DM 목록 Realtime]', status))
-
-    // 채널3: 그룹 메시지 → 목록 반영
-    const subGroup = supabase.channel('group-list-updates')
-      .on('postgres_changes', {
-        event: 'INSERT',
-        schema: 'public',
-        table: 'kyorangtalk_group_messages',
-      }, payload => {
-        const msg = payload.new as { room_id: string; content: string; created_at: string; msg_type: string; sender_id: string }
-        if (msg.msg_type !== 'message') return
-        const applyUpdate = (prev: GroupRoom[]) => {
-          const idx = prev.findIndex(r => r.id === msg.room_id)
-          if (idx === -1) return prev
-          return [{ ...prev[idx], last_message: msg.content, last_message_at: msg.created_at }, ...prev.filter(r => r.id !== msg.room_id)]
-        }
-        setMyGroupRooms(applyUpdate)
-        setChatTabGroups(applyUpdate)
-        if (msg.sender_id !== userId) {
-          setGroupUnreadMap(prev => ({ ...prev, [msg.room_id]: (prev[msg.room_id] || 0) + 1 }))
-        }
-      })
-      .subscribe(status => console.log('[그룹 목록 Realtime]', status))
-
     return () => {
       supabase.removeChannel(subMembers)
-      supabase.removeChannel(subDm)
-      supabase.removeChannel(subGroup)
     }
   }, [])
 
@@ -163,6 +119,43 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
       setChatTabGroups(data.filter(r => r.room_type === 'group')) // 그룹방 → 채팅탭
     }
   }
+
+  // 내가 속한 모든 방의 broadcast 구독 → 상대방 메시지 즉시 목록 반영
+  useEffect(() => {
+    const allRooms = [
+      ...roomList.map(r => ({ id: r.id, type: 'dm' as const })),
+      ...myGroupRooms.map(r => ({ id: r.id, type: 'group' as const })),
+      ...chatTabGroups.map(r => ({ id: r.id, type: 'group' as const })),
+    ]
+    if (allRooms.length === 0) return
+
+    const channels = allRooms.map(({ id, type }) =>
+      supabase.channel(`room-update-${id}`)
+        .on('broadcast', { event: 'new_message' }, ({ payload }) => {
+          if (payload.sender_id === userId) return
+          const { room_id, content, created_at } = payload
+          if (type === 'dm') {
+            setRoomList(prev => {
+              const idx = prev.findIndex(r => r.id === room_id)
+              if (idx === -1) return prev
+              return [{ ...prev[idx], last_message: content, last_message_at: created_at }, ...prev.filter(r => r.id !== room_id)]
+            })
+            setUnreadMap(prev => ({ ...prev, [room_id]: (prev[room_id] || 0) + 1 }))
+          } else {
+            const apply = (prev: GroupRoom[]) => {
+              const idx = prev.findIndex(r => r.id === room_id)
+              if (idx === -1) return prev
+              return [{ ...prev[idx], last_message: content, last_message_at: created_at }, ...prev.filter(r => r.id !== room_id)]
+            }
+            setMyGroupRooms(apply)
+            setChatTabGroups(apply)
+            setGroupUnreadMap(prev => ({ ...prev, [room_id]: (prev[room_id] || 0) + 1 }))
+          }
+        })
+        .subscribe()
+    )
+    return () => { channels.forEach(ch => supabase.removeChannel(ch)) }
+  }, [roomList.length, myGroupRooms.length, chatTabGroups.length])
 
   const loadPublicRooms = async () => {
     const { data } = await supabase.from('kyorangtalk_group_rooms').select('*').eq('room_type', 'open').order('member_count', { ascending: false }).limit(50)

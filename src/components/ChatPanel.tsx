@@ -175,8 +175,14 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
     setSending(true)
     const content = input.trim()
     setInput('')
+    const now = new Date().toISOString()
     await supabase.from('kyorangtalk_messages').insert({ room_id: openChat.room!.id, sender_id: userId, content })
-    await supabase.from('kyorangtalk_rooms').update({ last_message: content, last_message_at: new Date().toISOString() }).eq('id', openChat.room.id)
+    await supabase.from('kyorangtalk_rooms').update({ last_message: content, last_message_at: now }).eq('id', openChat.room.id)
+    // broadcast로 상대방 목록 즉시 갱신
+    await supabase.channel(`room-update-${openChat.room.id}`).send({
+      type: 'broadcast', event: 'new_message',
+      payload: { room_id: openChat.room.id, content, created_at: now, sender_id: userId, type: 'dm' }
+    })
     onMessageSent(openChat.room.id, content, 'dm')
     setSending(false)
     inputRef.current?.focus()
@@ -199,6 +205,11 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
       setGroupMessages(prev => prev.filter(m => m.id !== tempId))
     } else if (data) {
       setGroupMessages(prev => prev.map(m => m.id === tempId ? data as GroupMessage : m))
+      // broadcast로 멤버들 목록 즉시 갱신
+      await supabase.channel(`room-update-${openChat.groupRoom!.id}`).send({
+        type: 'broadcast', event: 'new_message',
+        payload: { room_id: openChat.groupRoom!.id, content, created_at: now, sender_id: userId, type: 'group' }
+      })
       onMessageSent(openChat.groupRoom!.id, content, 'group')
     }
     setSending(false)

@@ -52,8 +52,8 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
     loadPublicRooms()
     loadGroupUnreadCounts()
 
-    // 내가 새 그룹방에 추가될 때 자동 반영
-    const sub = supabase.channel('my-memberships')
+    // 채널1: 내가 그룹방에 추가될 때
+    const subMembers = supabase.channel('my-group-joins')
       .on('postgres_changes', {
         event: 'INSERT',
         schema: 'public',
@@ -69,7 +69,10 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
           setChatTabGroups(prev => prev.find(r => r.id === room.id) ? prev : [room, ...prev])
         }
       })
-      // DM 메시지 INSERT → 목록 last_message 직접 반영
+      .subscribe()
+
+    // 채널2: DM 메시지 → 목록 반영
+    const subDm = supabase.channel('dm-list-updates')
       .on('postgres_changes', {
         event: 'INSERT',
         schema: 'public',
@@ -80,15 +83,16 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
           const idx = prev.findIndex(r => r.id === msg.room_id)
           if (idx === -1) return prev
           const updated = { ...prev[idx], last_message: msg.content, last_message_at: msg.created_at }
-          const rest = prev.filter(r => r.id !== msg.room_id)
-          return [updated, ...rest]
+          return [updated, ...prev.filter(r => r.id !== msg.room_id)]
         })
-        // 안읽음 뱃지 업데이트
         if (msg.sender_id !== userId) {
           setUnreadMap(prev => ({ ...prev, [msg.room_id]: (prev[msg.room_id] || 0) + 1 }))
         }
       })
-      // 그룹 메시지 INSERT → 목록 last_message 직접 반영
+      .subscribe(status => console.log('[DM 목록 Realtime]', status))
+
+    // 채널3: 그룹 메시지 → 목록 반영
+    const subGroup = supabase.channel('group-list-updates')
       .on('postgres_changes', {
         event: 'INSERT',
         schema: 'public',
@@ -96,23 +100,24 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
       }, payload => {
         const msg = payload.new as { room_id: string; content: string; created_at: string; msg_type: string; sender_id: string }
         if (msg.msg_type !== 'message') return
-        const update = { last_message: msg.content, last_message_at: msg.created_at }
         const applyUpdate = (prev: GroupRoom[]) => {
           const idx = prev.findIndex(r => r.id === msg.room_id)
           if (idx === -1) return prev
-          const updated = { ...prev[idx], ...update }
-          return [updated, ...prev.filter(r => r.id !== msg.room_id)]
+          return [{ ...prev[idx], last_message: msg.content, last_message_at: msg.created_at }, ...prev.filter(r => r.id !== msg.room_id)]
         }
         setMyGroupRooms(applyUpdate)
         setChatTabGroups(applyUpdate)
-        // 상대방 메시지면 안읽음 뱃지 추가
         if (msg.sender_id !== userId) {
           setGroupUnreadMap(prev => ({ ...prev, [msg.room_id]: (prev[msg.room_id] || 0) + 1 }))
         }
       })
-      .subscribe()
+      .subscribe(status => console.log('[그룹 목록 Realtime]', status))
 
-    return () => { supabase.removeChannel(sub) }
+    return () => {
+      supabase.removeChannel(subMembers)
+      supabase.removeChannel(subDm)
+      supabase.removeChannel(subGroup)
+    }
   }, [])
 
   const loadUnreadCounts = async () => {

@@ -36,6 +36,7 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
   const [readMap, setReadMap] = useState<Record<string, string>>({})
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const groupSubRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
   const t = useThemeColors(isDark)
 
   const partner = openChat.type === 'dm' && openChat.room
@@ -129,7 +130,7 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
       setReadMap(prev => ({ ...prev, [userId]: now }))
       onMarkRead(roomId)
       // 내가 읽었다고 다른 멤버에게 알림
-      supabase.channel(`group-${roomId}`).send({
+      groupSubRef.current?.send({
         type: 'broadcast', event: 'message_read',
         payload: { user_id: userId, last_read_at: now }
       })
@@ -137,6 +138,8 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
     loadGroup()
 
     const sub = supabase.channel(`group-${roomId}`)
+    groupSubRef.current = sub
+    sub
       .on('broadcast', { event: 'new_message' }, async payload => {
         const newMsg = payload.payload as GroupMessage
         if (newMsg.sender_id === userId) return
@@ -147,7 +150,7 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
         setReadMap(prev => ({ ...prev, [userId]: now }))
         onMarkRead(roomId)
         // 내가 읽었다고 broadcast
-        supabase.channel(`group-${roomId}`).send({
+        groupSubRef.current?.send({
           type: 'broadcast', event: 'message_read',
           payload: { user_id: userId, last_read_at: now }
         })
@@ -231,7 +234,7 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
     } else if (data) {
       setGroupMessages(prev => prev.map(m => m.id === tempId ? data as GroupMessage : m))
       // 같은 채널로 broadcast → 상대방 채팅창 즉시 반영
-      await supabase.channel(`group-${openChat.groupRoom!.id}`).send({
+      await groupSubRef.current?.send({
         type: 'broadcast', event: 'new_message', payload: data
       })
       // HomeClient 목록용 broadcast
@@ -262,7 +265,7 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
       if (!confirm('오픈방을 나가시겠어요?\n방은 유지되지만 채팅이 비활성화됩니다.')) return
       await supabase.from('kyorangtalk_group_members').delete().eq('room_id', roomId).eq('user_id', userId)
       await supabase.from('kyorangtalk_group_messages').insert({ room_id: roomId, sender_id: userId, content: `${myNick}님(방장)이 나갔어요. 채팅이 비활성화됩니다.`, msg_type: 'system' })
-      await supabase.channel(`group-${roomId}`).send({ type: 'broadcast', event: 'owner_left', payload: {} })
+      await groupSubRef.current?.send({ type: 'broadcast', event: 'owner_left', payload: {} })
     } else if (roomType === 'open') {
       // 오픈방 일반 멤버
       if (!confirm('채팅방을 나가시겠어요?')) return
@@ -273,7 +276,7 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
       if (!confirm('채팅방을 나가시겠어요?')) return
       await supabase.from('kyorangtalk_group_members').delete().eq('room_id', roomId).eq('user_id', userId)
       await supabase.from('kyorangtalk_group_messages').insert({ room_id: roomId, sender_id: userId, content: `${myNick}님이 나갔어요.`, msg_type: 'system' })
-      await supabase.channel(`group-${roomId}`).send({
+      await groupSubRef.current?.send({
         type: 'broadcast', event: 'new_message',
         payload: { id: crypto.randomUUID(), room_id: roomId, sender_id: userId, content: `${myNick}님이 나갔어요.`, created_at: new Date().toISOString(), msg_type: 'system' }
       })
@@ -293,7 +296,7 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
     await supabase.from('kyorangtalk_group_members').insert({ room_id: roomId, user_id: friendUserId, role: 'member' })
     const friendNick = pMap[friendUserId]?.nickname || '친구'
     await supabase.from('kyorangtalk_group_messages').insert({ room_id: roomId, sender_id: userId, content: `${friendNick}님이 초대됐어요.`, msg_type: 'system' })
-    await supabase.channel(`group-${roomId}`).send({
+    await groupSubRef.current?.send({
       type: 'broadcast', event: 'new_message',
       payload: { id: crypto.randomUUID(), room_id: roomId, sender_id: userId, content: `${friendNick}님이 초대됐어요.`, created_at: new Date().toISOString(), msg_type: 'system' }
     })

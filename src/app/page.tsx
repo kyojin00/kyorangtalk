@@ -1,11 +1,14 @@
-import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { redirect } from 'next/navigation'
 import HomeClient from '@/components/HomeClient'
+import LandingPage from '@/components/LandingPage'
 
 export default async function Home() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
+
+  // 로그인 안 된 경우 → 랜딩페이지
+  if (!user) return <LandingPage />
 
   const { data: profile } = await supabase
     .from('kyorangtalk_profiles')

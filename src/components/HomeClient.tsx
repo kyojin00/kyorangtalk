@@ -69,19 +69,24 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
           setChatTabGroups(prev => prev.find(r => r.id === room.id) ? prev : [room, ...prev])
         }
       })
-      // DM 목록 마지막 메시지 실시간 반영
+      // DM 메시지 INSERT → 목록 last_message 직접 반영
       .on('postgres_changes', {
-        event: 'UPDATE',
+        event: 'INSERT',
         schema: 'public',
-        table: 'kyorangtalk_rooms',
+        table: 'kyorangtalk_messages',
       }, payload => {
-        const updated = payload.new as Room
+        const msg = payload.new as { room_id: string; content: string; created_at: string; sender_id: string }
         setRoomList(prev => {
-          const exists = prev.find(r => r.id === updated.id)
-          if (!exists) return prev
-          const filtered = prev.filter(r => r.id !== updated.id)
-          return [{ ...exists, ...updated }, ...filtered]
+          const idx = prev.findIndex(r => r.id === msg.room_id)
+          if (idx === -1) return prev
+          const updated = { ...prev[idx], last_message: msg.content, last_message_at: msg.created_at }
+          const rest = prev.filter(r => r.id !== msg.room_id)
+          return [updated, ...rest]
         })
+        // 안읽음 뱃지 업데이트
+        if (msg.sender_id !== userId) {
+          setUnreadMap(prev => ({ ...prev, [msg.room_id]: (prev[msg.room_id] || 0) + 1 }))
+        }
       })
       // 그룹 메시지 INSERT → 목록 last_message 직접 반영 (RLS 우회)
       .on('postgres_changes', {

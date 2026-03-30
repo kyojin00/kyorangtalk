@@ -79,14 +79,6 @@ export default function ProfileClient({ profile, userId }: { profile: Profile; u
             </button>
             <h1 style={{ fontSize: 16, fontWeight: 700, color: t.text }}>프로필 수정</h1>
           </div>
-          {/* 테마 토글 */}
-          <button onClick={() => {
-            const next = !isDark
-            setIsDark(next)
-            localStorage.setItem('kyorangtalk-theme', next ? 'dark' : 'light')
-          }} style={{ width: 34, height: 34, borderRadius: 10, background: t.inputBg, border: `1px solid ${t.border}`, color: t.muted, fontSize: 15, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            {isDark ? '☀️' : '🌙'}
-          </button>
         </div>
       </header>
 

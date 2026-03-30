@@ -51,6 +51,27 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
     loadUnreadCounts()
     loadPublicRooms()
     loadGroupUnreadCounts()
+
+    // 내가 새 그룹방에 추가될 때 자동 반영
+    const sub = supabase.channel('my-memberships')
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'kyorangtalk_group_members',
+        filter: `user_id=eq.${userId}`,
+      }, async payload => {
+        const roomId = (payload.new as { room_id: string }).room_id
+        const { data: room } = await supabase.from('kyorangtalk_group_rooms').select('*').eq('id', roomId).single()
+        if (!room) return
+        if (room.room_type === 'open') {
+          setMyGroupRooms(prev => prev.find(r => r.id === room.id) ? prev : [room, ...prev])
+        } else {
+          setChatTabGroups(prev => prev.find(r => r.id === room.id) ? prev : [room, ...prev])
+        }
+      })
+      .subscribe()
+
+    return () => { supabase.removeChannel(sub) }
   }, [])
 
   const loadUnreadCounts = async () => {

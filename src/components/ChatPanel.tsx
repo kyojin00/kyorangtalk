@@ -27,6 +27,8 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
   const roomType = openChat.groupRoom?.room_type ?? 'group' // 'open' | 'group'
   const [copied, setCopied] = useState(false)
   const [kickingId, setKickingId] = useState<string | null>(null)
+  // { user_id: last_read_at } — 멤버별 마지막 읽은 시각
+  const [readMap, setReadMap] = useState<Record<string, string>>({})
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const t = useThemeColors(isDark)
@@ -102,10 +104,20 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
         setGProfiles(map)
       }
 
-      // 읽음 처리
+      // 멤버별 읽음 시각 로드
+      const { data: reads } = await supabase
+        .from('kyorangtalk_group_reads')
+        .select('user_id, last_read_at')
+        .eq('room_id', roomId)
+      const rm: Record<string, string> = {}
+      ;(reads ?? []).forEach(r => { rm[r.user_id] = r.last_read_at })
+      setReadMap(rm)
+
+      // 내 읽음 처리
       const now = new Date().toISOString()
       await supabase.from('kyorangtalk_group_reads')
         .upsert({ room_id: roomId, user_id: userId, last_read_at: now }, { onConflict: 'room_id,user_id' })
+      setReadMap(prev => ({ ...prev, [userId]: now }))
       onMarkRead(roomId)
     }
     loadGroup()
@@ -113,17 +125,25 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
     const sub = supabase.channel(`group-${roomId}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'kyorangtalk_group_messages', filter: `room_id=eq.${roomId}` }, payload => {
         setGroupMessages(prev => [...prev, payload.new as GroupMessage])
+        const now = new Date().toISOString()
         supabase.from('kyorangtalk_group_reads')
-          .upsert({ room_id: roomId, user_id: userId, last_read_at: new Date().toISOString() }, { onConflict: 'room_id,user_id' })
+          .upsert({ room_id: roomId, user_id: userId, last_read_at: now }, { onConflict: 'room_id,user_id' })
+        setReadMap(prev => ({ ...prev, [userId]: now }))
         onMarkRead(roomId)
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'kyorangtalk_group_members', filter: `room_id=eq.${roomId}` }, async () => {
-        // 멤버 변경 시 재로드
         const { data: members } = await supabase
           .from('kyorangtalk_group_members')
           .select('*')
           .eq('room_id', roomId)
         setGroupMembers(members ?? [])
+      })
+      // 다른 멤버 읽음 변경 시 readMap 업데이트
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'kyorangtalk_group_reads', filter: `room_id=eq.${roomId}` }, payload => {
+        const r = payload.new as { user_id: string; last_read_at: string }
+        if (r?.user_id && r?.last_read_at) {
+          setReadMap(prev => ({ ...prev, [r.user_id]: r.last_read_at }))
+        }
       })
       .subscribe()
 
@@ -247,6 +267,17 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
       const hideTime = i < msgs.length - 1 && msgs[i + 1].sender_id === msg.sender_id && isSameMin(msg.created_at, msgs[i + 1].created_at)
       const senderProfile = openChat.type === 'group' ? gProfiles[msg.sender_id] : (isMine ? undefined : partner)
 
+      // 그룹방 안읽은 멤버 수 (내가 보낸 메시지에만 표시)
+      let unreadCount: number | null = null
+      if (openChat.type === 'group' && isMine && !isSystem) {
+        const otherMembers = groupMembers.filter(m => m.user_id !== userId)
+        const readCount = otherMembers.filter(m => {
+          const lastRead = readMap[m.user_id]
+          return lastRead && lastRead >= msg.created_at
+        }).length
+        unreadCount = otherMembers.length - readCount
+      }
+
       return (
         <div key={msg.id}>
           {showDate && (
@@ -278,9 +309,15 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
                   }}>
                     {msg.content}
                   </div>
-                  {!hideTime && (
-                    <span className="text-xs flex-shrink-0" style={{ color: t.label, fontSize: 10 }}>{fmtTime(msg.created_at)}</span>
-                  )}
+                  <div className="flex flex-col items-end gap-0.5 flex-shrink-0">
+                    {/* 그룹방 안읽은 수 */}
+                    {unreadCount !== null && unreadCount > 0 && (
+                      <span style={{ color: '#f59e0b', fontSize: 10, fontWeight: 600, lineHeight: 1 }}>{unreadCount}</span>
+                    )}
+                    {!hideTime && (
+                      <span className="text-xs" style={{ color: t.label, fontSize: 10 }}>{fmtTime(msg.created_at)}</span>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>

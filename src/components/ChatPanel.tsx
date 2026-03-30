@@ -283,11 +283,17 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
       await supabase.from('kyorangtalk_group_members').delete().eq('room_id', roomId).eq('user_id', userId)
       await supabase.from('kyorangtalk_group_messages').insert({ room_id: roomId, sender_id: userId, content: `${myNick}님(방장)이 나갔어요. 채팅이 비활성화됩니다.`, msg_type: 'system' })
       await groupSubRef.current?.send({ type: 'broadcast', event: 'owner_left', payload: {} })
+      // 남은 멤버 없으면 방 삭제
+      const { count } = await supabase.from('kyorangtalk_group_members').select('id', { count: 'exact', head: true }).eq('room_id', roomId)
+      if (count === 0) await supabase.from('kyorangtalk_group_rooms').delete().eq('id', roomId)
     } else if (roomType === 'open') {
       // 오픈방 일반 멤버
       if (!confirm('채팅방을 나가시겠어요?')) return
       await supabase.from('kyorangtalk_group_members').delete().eq('room_id', roomId).eq('user_id', userId)
       await supabase.from('kyorangtalk_group_messages').insert({ room_id: roomId, sender_id: userId, content: `${myNick}님이 나갔어요.`, msg_type: 'system' })
+      // 남은 멤버 없으면 방 삭제
+      const { count } = await supabase.from('kyorangtalk_group_members').select('id', { count: 'exact', head: true }).eq('room_id', roomId)
+      if (count === 0) await supabase.from('kyorangtalk_group_rooms').delete().eq('id', roomId)
     } else {
       // 그룹방 - 방장 개념 없이 누구나 그냥 나가기
       if (!confirm('채팅방을 나가시겠어요?')) return

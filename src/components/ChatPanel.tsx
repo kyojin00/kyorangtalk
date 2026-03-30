@@ -32,7 +32,9 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
   const [roomDeleted, setRoomDeleted] = useState(false)
   const [showInvite, setShowInvite] = useState(false)
   const [invitingId, setInvitingId] = useState<string | null>(null)
-  // { user_id: last_read_at } — 멤버별 마지막 읽은 시각
+  // 현재 채널에 접속 중인 유저 ID 집합
+  const [presenceIds, setPresenceIds] = useState<Set<string>>(new Set())
+  // { user_id: last_read_at } — 오프라인 멤버 읽음 시각 (presence 없는 경우 fallback)
   const [readMap, setReadMap] = useState<Record<string, string>>({})
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -137,7 +139,7 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
     }
     loadGroup()
 
-    const sub = supabase.channel(`group-${roomId}`)
+    const sub = supabase.channel(`group-${roomId}`, { config: { presence: { key: userId } } })
     groupSubRef.current = sub
     sub
       .on('broadcast', { event: 'new_message' }, async payload => {
@@ -185,8 +187,16 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
         setRoomDeleted(true)
         onLeaveGroup(roomId)
       })
-      .subscribe(status => {
+      .on('presence', { event: 'sync' }, () => {
+        const state = sub.presenceState<{ user_id: string }>()
+        const ids = new Set(Object.values(state).flatMap(s => s.map((p: any) => p.user_id)))
+        setPresenceIds(ids)
+      })
+      .subscribe(async status => {
         console.log(`[그룹 Realtime ${roomId}]`, status)
+        if (status === 'SUBSCRIBED') {
+          await sub.track({ user_id: userId })
+        }
       })
 
     return () => { supabase.removeChannel(sub) }
@@ -346,15 +356,18 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
       const hideTime = i < msgs.length - 1 && msgs[i + 1].sender_id === msg.sender_id && isSameMin(msg.created_at, msgs[i + 1].created_at)
       const senderProfile = openChat.type === 'group' ? gProfiles[msg.sender_id] : (isMine ? undefined : partner)
 
-      // 그룹방 안읽은 멤버 수 (내가 보낸 메시지에만 표시)
+      // 그룹방 안읽은 멤버 수
+      // presence에 있는 멤버 = 지금 방 열고 있음 = 읽음으로 간주
+      // presence에 없는 멤버는 readMap의 last_read_at으로 판단
       let unreadCount: number | null = null
       if (openChat.type === 'group' && isMine && !isSystem) {
         const otherMembers = groupMembers.filter(m => m.user_id !== userId)
-        const readCount = otherMembers.filter(m => {
+        const unreadMembers = otherMembers.filter(m => {
+          if (presenceIds.has(m.user_id)) return false // 지금 방에 있음 = 읽음
           const lastRead = readMap[m.user_id]
-          return lastRead && lastRead >= msg.created_at
-        }).length
-        unreadCount = otherMembers.length - readCount
+          return !lastRead || lastRead < msg.created_at
+        })
+        unreadCount = unreadMembers.length
       }
 
       // DM 안읽음 여부 (내가 보낸 메시지, 상대가 아직 안 읽은 경우)

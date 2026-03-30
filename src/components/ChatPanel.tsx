@@ -122,12 +122,17 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
       ;(reads ?? []).forEach(r => { rm[r.user_id] = r.last_read_at })
       setReadMap(rm)
 
-      // 내 읽음 처리
+      // 내 읽음 처리 + 다른 멤버에게 broadcast
       const now = new Date().toISOString()
       await supabase.from('kyorangtalk_group_reads')
         .upsert({ room_id: roomId, user_id: userId, last_read_at: now }, { onConflict: 'room_id,user_id' })
       setReadMap(prev => ({ ...prev, [userId]: now }))
       onMarkRead(roomId)
+      // 내가 읽었다고 다른 멤버에게 알림
+      supabase.channel(`group-${roomId}`).send({
+        type: 'broadcast', event: 'message_read',
+        payload: { user_id: userId, last_read_at: now }
+      })
     }
     loadGroup()
 
@@ -141,6 +146,17 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
           .upsert({ room_id: roomId, user_id: userId, last_read_at: now }, { onConflict: 'room_id,user_id' })
         setReadMap(prev => ({ ...prev, [userId]: now }))
         onMarkRead(roomId)
+        // 내가 읽었다고 broadcast
+        supabase.channel(`group-${roomId}`).send({
+          type: 'broadcast', event: 'message_read',
+          payload: { user_id: userId, last_read_at: now }
+        })
+      })
+      // 다른 멤버가 읽었을 때 readMap 즉시 업데이트
+      .on('broadcast', { event: 'message_read' }, ({ payload }) => {
+        if (payload.user_id && payload.last_read_at) {
+          setReadMap(prev => ({ ...prev, [payload.user_id]: payload.last_read_at }))
+        }
       })
       .on('broadcast', { event: 'owner_left' }, () => {
         // 오픈방 방장이 나감 - 멤버 목록 갱신

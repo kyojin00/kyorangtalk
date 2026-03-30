@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Avatar, GroupAvatar } from './TalkAvatars'
@@ -40,6 +40,9 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
   const [joinCode, setJoinCode] = useState('')
   const [joiningCode, setJoiningCode] = useState(false)
   const [exploreSearch, setExploreSearch] = useState('')
+  const [showPanel, setShowPanel] = useState(true)
+  const openChatsRef = useRef(openChats)
+  useEffect(() => { openChatsRef.current = openChats }, [openChats])
 
   const t = useThemeColors(isDark)
 
@@ -134,13 +137,14 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
         .on('broadcast', { event: 'new_message' }, ({ payload }) => {
           if (payload.sender_id === userId) return
           const { room_id, content, created_at } = payload
+          const isRoomOpen = openChatsRef.current.some(c => c.id === room_id)
           if (type === 'dm') {
             setRoomList(prev => {
               const idx = prev.findIndex(r => r.id === room_id)
               if (idx === -1) return prev
               return [{ ...prev[idx], last_message: content, last_message_at: created_at }, ...prev.filter(r => r.id !== room_id)]
             })
-            setUnreadMap(prev => ({ ...prev, [room_id]: (prev[room_id] || 0) + 1 }))
+            if (!isRoomOpen) setUnreadMap(prev => ({ ...prev, [room_id]: (prev[room_id] || 0) + 1 }))
           } else {
             const apply = (prev: GroupRoom[]) => {
               const idx = prev.findIndex(r => r.id === room_id)
@@ -149,7 +153,7 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
             }
             setMyGroupRooms(apply)
             setChatTabGroups(apply)
-            setGroupUnreadMap(prev => ({ ...prev, [room_id]: (prev[room_id] || 0) + 1 }))
+            if (!isRoomOpen) setGroupUnreadMap(prev => ({ ...prev, [room_id]: (prev[room_id] || 0) + 1 }))
           }
         })
         .subscribe()
@@ -330,8 +334,11 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
       <div className="flex flex-col items-center py-6 gap-3 flex-shrink-0" style={{ width: 68, background: t.sidebarBg, borderRight: `1px solid ${t.border}` }}>
         <div className="mb-2"><Avatar p={profile} size={34} /></div>
         {tabs.map(({ key, icon, badge }) => (
-          <button key={key} onClick={() => setTab(key)} className="relative w-10 h-10 rounded-xl flex items-center justify-center text-base transition-all"
-            style={{ background: tab === key ? t.accentLight : 'transparent' }}>
+          <button key={key} onClick={() => {
+            if (tab === key) setShowPanel(v => !v)
+            else { setTab(key); setShowPanel(true) }
+          }} className="relative w-10 h-10 rounded-xl flex items-center justify-center text-base transition-all"
+            style={{ background: tab === key && showPanel ? t.accentLight : 'transparent' }}>
             {icon}
             {badge > 0 && <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full text-white flex items-center justify-center font-bold" style={{ background: '#ef4444', fontSize: 9 }}>{badge}</span>}
           </button>
@@ -342,9 +349,13 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
       </div>
 
       {/* 목록 패널 */}
+      {showPanel && (
       <div className="flex flex-col flex-shrink-0 overflow-hidden" style={{ width: 280, borderRight: `1px solid ${t.border}`, background: t.surface }}>
-        <div className="px-4 py-3 flex-shrink-0" style={{ borderBottom: `1px solid ${t.border}` }}>
+        <div className="px-4 py-3 flex-shrink-0 flex items-center justify-between" style={{ borderBottom: `1px solid ${t.border}` }}>
           <h2 className="font-bold text-sm" style={{ color: t.text }}>{tabLabel[tab]}</h2>
+          <button onClick={() => setShowPanel(false)} className="p-1 rounded-lg hover:opacity-60" style={{ color: t.muted }}>
+            <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>
+          </button>
         </div>
         <div className="flex-1 overflow-y-auto">
 
@@ -572,9 +583,18 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
           )}
         </div>
       </div>
+      )}
 
       {/* 멀티 채팅 패널 */}
-      <div className="flex-1 flex gap-3 p-3 overflow-x-auto" style={{ background: t.bg }}>
+      <div className="flex-1 flex gap-3 p-3 overflow-x-auto relative" style={{ background: t.bg }}>
+        {/* 패널 접혔을 때 펼치기 버튼 */}
+        {!showPanel && (
+          <button onClick={() => setShowPanel(true)}
+            className="absolute left-1 top-1/2 -translate-y-1/2 z-10 w-5 h-10 rounded-r-lg flex items-center justify-center hover:opacity-80 transition-opacity"
+            style={{ background: t.surface, border: `1px solid ${t.border}`, color: t.muted }}>
+            <svg width="10" height="10" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg>
+          </button>
+        )}
         {openChats.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center gap-3">
             <p className="text-5xl">🐱</p>

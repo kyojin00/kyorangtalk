@@ -299,7 +299,7 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
         <div className="flex items-center gap-2.5 px-4 py-3 flex-shrink-0" style={{ borderBottom: `1px solid ${t.border}`, background: t.surface }}>
           {openChat.type === 'dm' && partner
             ? <Avatar p={partner} size={32} />
-            : <GroupAvatar name={title} size={32} isDark={isDark} />
+            : <GroupAvatar name={title} size={32} />
           }
           <div className="flex-1 min-w-0">
             <p className="font-semibold text-sm truncate" style={{ color: t.text }}>{title}</p>

@@ -42,6 +42,14 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
   const [exploreSearch, setExploreSearch] = useState('')
   const [exploreCategory, setExploreCategory] = useState('전체')
   const [showPanel, setShowPanel] = useState(true)
+  const [isMobile, setIsMobile] = useState(false)
+  const [mobileView, setMobileView] = useState<'list' | 'chat'>('list')
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 768)
+    check()
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [])
   const [notifyEnabled, setNotifyEnabled] = useState(true)
   useEffect(() => {
     setNotifyEnabled(localStorage.getItem('kyorangtalk-notify') !== 'off')
@@ -234,13 +242,21 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
 
   const openDMChat = (room: Room) => {
     if (!openChats.find(c => c.id === room.id)) setOpenChats(prev => [...prev, { id: room.id, type: 'dm', room }])
+    if (isMobile) setMobileView('chat')
   }
 
   const openGroupChat = (groupRoom: GroupRoom) => {
     if (!openChats.find(c => c.id === groupRoom.id)) setOpenChats(prev => [...prev, { id: groupRoom.id, type: 'group', groupRoom }])
+    if (isMobile) setMobileView('chat')
   }
 
-  const closeChat = (id: string) => setOpenChats(prev => prev.filter(c => c.id !== id))
+  const closeChat = (id: string) => {
+    setOpenChats(prev => {
+      const next = prev.filter(c => c.id !== id)
+      if (isMobile && next.length === 0) setMobileView('list')
+      return next
+    })
+  }
 
   const handleLeaveGroup = (roomId: string) => {
     setMyGroupRooms(prev => prev.filter(r => r.id !== roomId))
@@ -361,100 +377,9 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
   ]
   const tabLabel: Record<string, string> = { friends: '친구', chats: '채팅', groups: '오픈방', explore: '탐색', settings: '설정' }
 
-  return (
-    <div className="flex h-screen overflow-hidden" style={{ background: t.bg }}>
 
-      {/* 토스트 알림 */}
-      <div className="fixed top-4 right-4 z-50 flex flex-col gap-2 pointer-events-none" style={{ maxWidth: 300 }}>
-        {toasts.map(toast => (
-          <div key={toast.id}
-            className="flex items-start gap-3 px-4 py-3 rounded-2xl shadow-lg pointer-events-auto cursor-pointer"
-            style={{ background: t.surface, border: `1px solid ${t.border}`, animation: 'slideIn 0.2s ease' }}
-            onClick={() => {
-              setToasts(prev => prev.filter(t => t.id !== toast.id))
-              // 해당 채팅방 열기
-              if (toast.type === 'dm') {
-                const room = roomList.find(r => r.id === toast.roomId)
-                if (room) openDMChat(room)
-              } else {
-                const room = [...myGroupRooms, ...chatTabGroups].find(r => r.id === toast.roomId)
-                if (room) openGroupChat(room)
-              }
-            }}>
-            <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 text-sm"
-              style={{ background: toast.type === 'dm' ? t.accent : 'linear-gradient(135deg,#f59e0b,#ef4444)', color: 'white' }}>
-              {toast.type === 'dm' ? '💬' : '👥'}
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-bold truncate" style={{ color: t.text }}>
-                {toast.type === 'group' ? `${toast.roomName}` : toast.senderNick}
-              </p>
-              {toast.type === 'group' && (
-                <p className="text-xs" style={{ color: t.muted }}>{toast.senderNick}</p>
-              )}
-              <p className="text-xs truncate mt-0.5" style={{ color: t.muted }}>{toast.content}</p>
-            </div>
-            <button onClick={e => { e.stopPropagation(); setToasts(prev => prev.filter(t => t.id !== toast.id)) }}
-              className="flex-shrink-0 opacity-40 hover:opacity-100" style={{ color: t.muted }}>
-              <svg width="10" height="10" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
-            </button>
-          </div>
-        ))}
-      </div>
-      <style>{`@keyframes slideIn { from { opacity: 0; transform: translateX(20px) } to { opacity: 1; transform: translateX(0) } }`}</style>
-
-      {showCreateGroup && (
-        <CreateGroupModal userId={userId} isDark={isDark}
-          onClose={() => setShowCreateGroup(false)}
-          onCreated={(room) => {
-            setMyGroupRooms(prev => [room, ...prev])
-            if (room.room_type === 'open') setPublicRooms(prev => [room, ...prev])
-            setShowCreateGroup(false)
-            openGroupChat(room)
-            setTab('groups')
-          }} />
-      )}
-
-      {showCreateChat && (
-        <CreateChatModal
-          userId={userId} profile={profile} friendList={friendList} pMap={pMap} isDark={isDark}
-          onClose={() => setShowCreateChat(false)}
-          onStartDM={async (fId) => { await startChat(fId); setTab('chats') }}
-          onStartGroup={(room) => {
-            setChatTabGroups(prev => [room, ...prev])
-            openGroupChat(room)
-            setTab('chats')
-          }} />
-      )}
-
-      {/* 사이드바 */}
-      <div className="flex flex-col items-center py-6 gap-3 flex-shrink-0" style={{ width: 68, background: t.sidebarBg, borderRight: `1px solid ${t.border}` }}>
-        <div className="mb-2"><Avatar p={profile} size={34} /></div>
-        {tabs.map(({ key, icon, badge }) => (
-          <button key={key} onClick={() => {
-            if (tab === key) setShowPanel(v => !v)
-            else { setTab(key); setShowPanel(true) }
-          }} className="relative w-10 h-10 rounded-xl flex items-center justify-center text-base transition-all"
-            style={{ background: tab === key && showPanel ? t.accentLight : 'transparent' }}>
-            {icon}
-            {badge > 0 && <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full text-white flex items-center justify-center font-bold" style={{ background: '#ef4444', fontSize: 9 }}>{badge}</span>}
-          </button>
-        ))}
-        <div className="mt-auto" />
-      </div>
-
-      {/* 목록 패널 */}
-      {showPanel && (
-      <div className="flex flex-col flex-shrink-0 overflow-hidden" style={{ width: 280, borderRight: `1px solid ${t.border}`, background: t.surface }}>
-        <div className="px-4 py-3 flex-shrink-0 flex items-center justify-between" style={{ borderBottom: `1px solid ${t.border}` }}>
-          <h2 className="font-bold text-sm" style={{ color: t.text }}>{tabLabel[tab]}</h2>
-          <button onClick={() => setShowPanel(false)} className="p-1 rounded-lg hover:opacity-60" style={{ color: t.muted }}>
-            <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>
-          </button>
-        </div>
-        <div className="flex-1 overflow-y-auto">
-
-          {/* 친구 탭 */}
+  const renderTabContent = () => (
+    <div>
           {tab === 'friends' && (
             <div>
               <button onClick={() => router.push('/profile')} className="w-full flex items-center gap-3 px-4 py-4 text-left hover:opacity-70" style={{ borderBottom: `1px solid ${t.border}` }}>
@@ -762,33 +687,102 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
               </button>
             </div>
           )}
-        </div>
+    </div>
+  )
+
+  return (
+    <div className="flex h-screen overflow-hidden" style={{ background: t.bg }}>
+
+      {/* 토스트 알림 */}
+      <div className="fixed top-4 right-4 z-50 flex flex-col gap-2 pointer-events-none" style={{ maxWidth: 300 }}>
+        {toasts.map(toast => (
+          <div key={toast.id}
+            className="flex items-start gap-3 px-4 py-3 rounded-2xl shadow-lg pointer-events-auto cursor-pointer"
+            style={{ background: t.surface, border: `1px solid ${t.border}`, animation: 'slideIn 0.2s ease' }}
+            onClick={() => {
+              setToasts(prev => prev.filter(t => t.id !== toast.id))
+              if (toast.type === 'dm') {
+                const room = roomList.find(r => r.id === toast.roomId)
+                if (room) openDMChat(room)
+              } else {
+                const room = [...myGroupRooms, ...chatTabGroups].find(r => r.id === toast.roomId)
+                if (room) openGroupChat(room)
+              }
+            }}>
+            <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 text-sm"
+              style={{ background: toast.type === 'dm' ? t.accent : 'linear-gradient(135deg,#f59e0b,#ef4444)', color: 'white' }}>
+              {toast.type === 'dm' ? '💬' : '👥'}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-bold truncate" style={{ color: t.text }}>
+                {toast.type === 'group' ? `${toast.roomName}` : toast.senderNick}
+              </p>
+              {toast.type === 'group' && (
+                <p className="text-xs" style={{ color: t.muted }}>{toast.senderNick}</p>
+              )}
+              <p className="text-xs truncate mt-0.5" style={{ color: t.muted }}>{toast.content}</p>
+            </div>
+            <button onClick={e => { e.stopPropagation(); setToasts(prev => prev.filter(t => t.id !== toast.id)) }}
+              className="flex-shrink-0 opacity-40 hover:opacity-100" style={{ color: t.muted }}>
+              <svg width="10" height="10" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+            </button>
+          </div>
+        ))}
       </div>
+      <style>{`@keyframes slideIn { from { opacity: 0; transform: translateX(20px) } to { opacity: 1; transform: translateX(0) } }`}</style>
+
+      {showCreateGroup && (
+        <CreateGroupModal userId={userId} isDark={isDark}
+          onClose={() => setShowCreateGroup(false)}
+          onCreated={(room) => {
+            setMyGroupRooms(prev => [room, ...prev])
+            if (room.room_type === 'open') setPublicRooms(prev => [room, ...prev])
+            setShowCreateGroup(false)
+            openGroupChat(room)
+            setTab('groups')
+          }} />
       )}
 
-      {/* 멀티 채팅 패널 */}
-      <div className="flex-1 flex gap-3 p-3 overflow-x-auto relative" style={{ background: t.bg }}>
-        {/* 패널 접혔을 때 펼치기 버튼 */}
-        {!showPanel && (
-          <button onClick={() => setShowPanel(true)}
-            className="absolute left-1 top-1/2 -translate-y-1/2 z-10 w-5 h-10 rounded-r-lg flex items-center justify-center hover:opacity-80 transition-opacity"
-            style={{ background: t.surface, border: `1px solid ${t.border}`, color: t.muted }}>
-            <svg width="10" height="10" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg>
-          </button>
-        )}
-        {openChats.length === 0 ? (
-          <div className="flex-1 flex flex-col items-center justify-center gap-3">
-            <p className="font-medium text-sm" style={{ color: t.muted }}>대화를 선택해보세요</p>
-            <p className="text-xs" style={{ color: t.label }}>여러 채팅을 동시에 열 수 있어요</p>
-          </div>
-        ) : openChats.map(chat => (
-          <div key={chat.id} style={{ width: `${Math.max(300, Math.floor(100 / openChats.length))}%`, minWidth: '300px', maxWidth: '600px', flexShrink: 0, flexGrow: 1 }}>
-            <ChatPanel
-              openChat={chat} userId={userId} pMap={pMap} isDark={isDark}
-              friendList={friendList}
-              onClose={closeChat}
-              onMarkRead={handleMarkRead}
-              onLeaveGroup={handleLeaveGroup}
+      {showCreateChat && (
+        <CreateChatModal
+          userId={userId} profile={profile} friendList={friendList} pMap={pMap} isDark={isDark}
+          onClose={() => setShowCreateChat(false)}
+          onStartDM={async (fId) => { await startChat(fId); setTab('chats') }}
+          onStartGroup={(room) => {
+            setChatTabGroups(prev => [room, ...prev])
+            openGroupChat(room)
+            setTab('chats')
+          }} />
+      )}
+
+      {/* ─── 모바일 레이아웃 ─── */}
+      {isMobile ? (
+        <div className="flex flex-col w-full h-full">
+          {mobileView === 'chat' && openChats.length > 0 ? (
+            <div className="flex flex-col flex-1 overflow-hidden">
+              {/* 모바일 채팅 헤더 */}
+              <div className="flex items-center gap-2 px-3 py-2 flex-shrink-0" style={{ background: t.surface, borderBottom: `1px solid ${t.border}` }}>
+                <button onClick={() => setMobileView('list')}
+                  className="w-8 h-8 flex items-center justify-center rounded-lg"
+                  style={{ background: t.inputBg, color: t.muted }}>←</button>
+                <span className="text-sm font-semibold" style={{ color: t.text }}>
+                  {openChats[openChats.length-1]?.type === 'dm'
+                    ? pMap[openChats[openChats.length-1]?.room?.user1_id === userId
+                        ? openChats[openChats.length-1]?.room?.user2_id ?? ''
+                        : openChats[openChats.length-1]?.room?.user1_id ?? '']?.nickname ?? '채팅'
+                    : openChats[openChats.length-1]?.groupRoom?.name ?? '채팅'}
+                </span>
+              </div>
+              <div className="flex-1 overflow-hidden">
+                {(() => {
+                  const chat = openChats[openChats.length - 1]
+                  return (
+                    <ChatPanel key={chat.id}
+                      openChat={chat} userId={userId} pMap={pMap} isDark={isDark}
+                      friendList={friendList}
+                      onClose={closeChat}
+                      onMarkRead={handleMarkRead}
+                      onLeaveGroup={handleLeaveGroup}
               onMessageSent={(roomId, content, type) => {
                 const now = new Date().toISOString()
                 if (type === 'dm') {
@@ -808,10 +802,117 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
                   setChatTabGroups(applyUpdate)
                 }
               }}
-            />
+                    />
+                  )
+                })()}
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-col flex-1 overflow-hidden">
+              {/* 모바일 헤더 */}
+              <div className="flex items-center justify-between px-4 py-3 flex-shrink-0" style={{ background: t.surface, borderBottom: `1px solid ${t.border}` }}>
+                <div className="flex items-center gap-2">
+                  <Avatar p={profile} size={30} />
+                  <span className="font-bold text-sm" style={{ color: t.text }}>{tabLabel[tab]}</span>
+                </div>
+              </div>
+              <div className="flex-1 overflow-y-auto">
+                {renderTabContent()}
+              </div>
+              {/* 하단 탭바 */}
+              <div className="flex-shrink-0 flex items-center justify-around py-2" style={{ background: t.surface, borderTop: `1px solid ${t.border}` }}>
+                {tabs.map(({ key, icon, badge }) => (
+                  <button key={key} onClick={() => setTab(key)}
+                    className="relative flex flex-col items-center gap-0.5 px-3 py-1">
+                    <span className="text-xl">{icon}</span>
+                    <span style={{ color: tab === key ? t.accentText : t.muted, fontWeight: tab === key ? 600 : 400, fontSize: 10 }}>{tabLabel[key]}</span>
+                    {badge > 0 && <span className="absolute top-0 right-1 w-4 h-4 rounded-full text-white flex items-center justify-center font-bold" style={{ background: '#ef4444', fontSize: 9 }}>{badge}</span>}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="flex flex-1 overflow-hidden">
+          {/* 사이드바 */}
+          <div className="flex flex-col items-center py-6 gap-3 flex-shrink-0" style={{ width: 68, background: t.sidebarBg, borderRight: `1px solid ${t.border}` }}>
+            <div className="mb-2"><Avatar p={profile} size={34} /></div>
+            {tabs.map(({ key, icon, badge }) => (
+              <button key={key} onClick={() => {
+                if (tab === key) setShowPanel(v => !v)
+                else { setTab(key); setShowPanel(true) }
+              }} className="relative w-10 h-10 rounded-xl flex items-center justify-center text-base transition-all"
+                style={{ background: tab === key && showPanel ? t.accentLight : 'transparent' }}>
+                {icon}
+                {badge > 0 && <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full text-white flex items-center justify-center font-bold" style={{ background: '#ef4444', fontSize: 9 }}>{badge}</span>}
+              </button>
+            ))}
+            <div className="mt-auto" />
           </div>
-        ))}
-      </div>
+
+          {/* 목록 패널 */}
+          {showPanel && (
+            <div className="flex flex-col flex-shrink-0 overflow-hidden" style={{ width: 280, borderRight: `1px solid ${t.border}`, background: t.surface }}>
+              <div className="px-4 py-3 flex-shrink-0 flex items-center justify-between" style={{ borderBottom: `1px solid ${t.border}` }}>
+                <h2 className="font-bold text-sm" style={{ color: t.text }}>{tabLabel[tab]}</h2>
+                <button onClick={() => setShowPanel(false)} className="p-1 rounded-lg hover:opacity-60" style={{ color: t.muted }}>
+                  <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto">
+                {renderTabContent()}
+              </div>
+            </div>
+          )}
+
+          {/* 멀티 채팅 패널 */}
+          <div className="flex-1 flex gap-3 p-3 overflow-x-auto relative" style={{ background: t.bg }}>
+            {!showPanel && (
+              <button onClick={() => setShowPanel(true)}
+                className="absolute left-1 top-1/2 -translate-y-1/2 z-10 w-5 h-10 rounded-r-lg flex items-center justify-center hover:opacity-80 transition-opacity"
+                style={{ background: t.surface, border: `1px solid ${t.border}`, color: t.muted }}>
+                <svg width="10" height="10" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg>
+              </button>
+            )}
+            {openChats.length === 0 ? (
+              <div className="flex-1 flex flex-col items-center justify-center gap-3">
+                <p className="font-medium text-sm" style={{ color: t.muted }}>대화를 선택해보세요</p>
+                <p className="text-xs" style={{ color: t.label }}>여러 채팅을 동시에 열 수 있어요</p>
+              </div>
+            ) : openChats.map(chat => (
+              <div key={chat.id} style={{ width: `${Math.max(300, Math.floor(100 / openChats.length))}%`, minWidth: '300px', maxWidth: '600px', flexShrink: 0, flexGrow: 1 }}>
+                <ChatPanel
+                  openChat={chat} userId={userId} pMap={pMap} isDark={isDark}
+                  friendList={friendList}
+                  onClose={closeChat}
+                  onMarkRead={handleMarkRead}
+                  onLeaveGroup={handleLeaveGroup}
+              onMessageSent={(roomId, content, type) => {
+                const now = new Date().toISOString()
+                if (type === 'dm') {
+                  setRoomList(prev => {
+                    const idx = prev.findIndex(r => r.id === roomId)
+                    if (idx === -1) return prev
+                    const updated = { ...prev[idx], last_message: content, last_message_at: now }
+                    return [updated, ...prev.filter(r => r.id !== roomId)]
+                  })
+                } else {
+                  const applyUpdate = (prev: GroupRoom[]) => {
+                    const idx = prev.findIndex(r => r.id === roomId)
+                    if (idx === -1) return prev
+                    return [{ ...prev[idx], last_message: content, last_message_at: now }, ...prev.filter(r => r.id !== roomId)]
+                  }
+                  setMyGroupRooms(applyUpdate)
+                  setChatTabGroups(applyUpdate)
+                }
+              }}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -185,7 +185,6 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
     const content = input.trim()
     setInput('')
     await supabase.from('kyorangtalk_group_messages').insert({ room_id: openChat.groupRoom!.id, sender_id: userId, content, msg_type: 'message' })
-    await supabase.from('kyorangtalk_group_rooms').update({ last_message: content, last_message_at: new Date().toISOString() }).eq('id', openChat.groupRoom.id)
     setSending(false)
     inputRef.current?.focus()
   }

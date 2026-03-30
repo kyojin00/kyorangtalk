@@ -61,7 +61,7 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
         filter: `user_id=eq.${userId}`,
       }, async payload => {
         const roomId = (payload.new as { room_id: string }).room_id
-        const { data: room } = await supabase.from('kyorangtalk_group_rooms').select('*').eq('id', roomId).single()
+        const { data: room } = await supabase.from('kyorangtalk_group_rooms').select('*').eq('id', roomId).maybeSingle()
         if (!room) return
         if (room.room_type === 'open') {
           setMyGroupRooms(prev => prev.find(r => r.id === room.id) ? prev : [room, ...prev])
@@ -79,21 +79,33 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
         setRoomList(prev => {
           const exists = prev.find(r => r.id === updated.id)
           if (!exists) return prev
-          // 최신 메시지 방을 맨 위로
           const filtered = prev.filter(r => r.id !== updated.id)
           return [{ ...exists, ...updated }, ...filtered]
         })
       })
-      // 그룹방 목록 마지막 메시지 실시간 반영
+      // 그룹 메시지 INSERT → 목록 last_message 직접 반영 (RLS 우회)
       .on('postgres_changes', {
-        event: 'UPDATE',
+        event: 'INSERT',
         schema: 'public',
-        table: 'kyorangtalk_group_rooms',
+        table: 'kyorangtalk_group_messages',
       }, payload => {
-        const updated = payload.new as GroupRoom
-        setMyGroupRooms(prev => prev.map(r => r.id === updated.id ? { ...r, ...updated } : r))
-        setChatTabGroups(prev => prev.map(r => r.id === updated.id ? { ...r, ...updated } : r))
-        setPublicRooms(prev => prev.map(r => r.id === updated.id ? { ...r, ...updated } : r))
+        const msg = payload.new as { room_id: string; content: string; created_at: string; msg_type: string }
+        if (msg.msg_type !== 'message') return
+        const update = { last_message: msg.content, last_message_at: msg.created_at }
+        setMyGroupRooms(prev => {
+          const idx = prev.findIndex(r => r.id === msg.room_id)
+          if (idx === -1) return prev
+          const updated = { ...prev[idx], ...update }
+          const rest = prev.filter(r => r.id !== msg.room_id)
+          return [updated, ...rest]
+        })
+        setChatTabGroups(prev => {
+          const idx = prev.findIndex(r => r.id === msg.room_id)
+          if (idx === -1) return prev
+          const updated = { ...prev[idx], ...update }
+          const rest = prev.filter(r => r.id !== msg.room_id)
+          return [updated, ...rest]
+        })
       })
       .subscribe()
 

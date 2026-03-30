@@ -184,7 +184,8 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
     setSending(true)
     const content = input.trim()
     setInput('')
-    await supabase.from('kyorangtalk_group_messages').insert({ room_id: openChat.groupRoom!.id, sender_id: userId, content, msg_type: 'message' })
+    const { error } = await supabase.from('kyorangtalk_group_messages').insert({ room_id: openChat.groupRoom!.id, sender_id: userId, content, msg_type: 'message' })
+    if (error) console.error('[그룹 메시지 전송 에러]', JSON.stringify(error))
     setSending(false)
     inputRef.current?.focus()
   }

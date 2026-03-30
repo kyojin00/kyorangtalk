@@ -125,9 +125,41 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
       })
       .subscribe()
 
+    // 채널: 친구 요청 실시간 반영
+    const subFriends = supabase.channel('my-friend-requests')
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'kyorangtalk_friends',
+        filter: `receiver_id=eq.${userId}`,
+      }, async payload => {
+        const req = payload.new as Friend
+        // 발신자 프로필 로드
+        const { data: p } = await supabase.from('kyorangtalk_profiles').select('*').eq('id', req.requester_id).single()
+        if (p) setPMap(prev => ({ ...prev, [p.id]: p }))
+        setPendingList(prev => prev.find(f => f.id === req.id) ? prev : [req, ...prev])
+      })
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'kyorangtalk_friends',
+        filter: `requester_id=eq.${userId}`,
+      }, async payload => {
+        const req = payload.new as Friend
+        if (req.status === 'accepted') {
+          // 상대방이 수락 → 친구 목록에 추가, 보낸 요청에서 제거
+          setSentList(prev => prev.filter(f => f.id !== req.id))
+          setFriendList(prev => prev.find(f => f.id === req.id) ? prev : [...prev, req])
+          const { data: p } = await supabase.from('kyorangtalk_profiles').select('*').eq('id', req.receiver_id).single()
+          if (p) setPMap(prev => ({ ...prev, [p.id]: p }))
+        }
+      })
+      .subscribe()
+
     return () => {
       supabase.removeChannel(subMembers)
       supabase.removeChannel(subRooms)
+      supabase.removeChannel(subFriends)
     }
   }, [])
 

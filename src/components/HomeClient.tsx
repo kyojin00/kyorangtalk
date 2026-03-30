@@ -43,6 +43,19 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
   const [showPanel, setShowPanel] = useState(true)
   const openChatsRef = useRef(openChats)
   useEffect(() => { openChatsRef.current = openChats }, [openChats])
+  const pMapRef = useRef(pMap)
+  useEffect(() => { pMapRef.current = pMap }, [pMap])
+  const myGroupRoomsRef = useRef(myGroupRooms)
+  useEffect(() => { myGroupRoomsRef.current = myGroupRooms }, [myGroupRooms])
+  const chatTabGroupsRef = useRef(chatTabGroups)
+  useEffect(() => { chatTabGroupsRef.current = chatTabGroups }, [chatTabGroups])
+
+  // 토스트 알림
+  const [toasts, setToasts] = useState<{ id: string; roomId: string; roomName: string; content: string; senderNick: string; type: 'dm' | 'group' }[]>([])
+  const addToast = (toast: typeof toasts[0]) => {
+    setToasts(prev => [...prev.slice(-4), toast]) // 최대 5개
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== toast.id)), 4000)
+  }
 
   const t = useThemeColors(isDark)
 
@@ -161,7 +174,7 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
       supabase.channel(`room-update-${id}`)
         .on('broadcast', { event: 'new_message' }, ({ payload }) => {
           if (payload.sender_id === userId) return
-          const { room_id, content, created_at } = payload
+          const { room_id, content, created_at, sender_id } = payload
           const isRoomOpen = openChatsRef.current.some(c => c.id === room_id)
           if (type === 'dm') {
             setRoomList(prev => {
@@ -169,7 +182,11 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
               if (idx === -1) return prev
               return [{ ...prev[idx], last_message: content, last_message_at: created_at }, ...prev.filter(r => r.id !== room_id)]
             })
-            if (!isRoomOpen) setUnreadMap(prev => ({ ...prev, [room_id]: (prev[room_id] || 0) + 1 }))
+            if (!isRoomOpen) {
+              setUnreadMap(prev => ({ ...prev, [room_id]: (prev[room_id] || 0) + 1 }))
+              const senderNick = pMapRef.current[sender_id]?.nickname || '누군가'
+              addToast({ id: `${room_id}-${Date.now()}`, roomId: room_id, roomName: senderNick, content, senderNick, type: 'dm' })
+            }
           } else {
             const apply = (prev: GroupRoom[]) => {
               const idx = prev.findIndex(r => r.id === room_id)
@@ -178,7 +195,12 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
             }
             setMyGroupRooms(apply)
             setChatTabGroups(apply)
-            if (!isRoomOpen) setGroupUnreadMap(prev => ({ ...prev, [room_id]: (prev[room_id] || 0) + 1 }))
+            if (!isRoomOpen) {
+              setGroupUnreadMap(prev => ({ ...prev, [room_id]: (prev[room_id] || 0) + 1 }))
+              const senderNick = pMapRef.current[sender_id]?.nickname || '누군가'
+              const roomName = [...myGroupRoomsRef.current, ...chatTabGroupsRef.current].find(r => r.id === room_id)?.name || '그룹'
+              addToast({ id: `${room_id}-${Date.now()}`, roomId: room_id, roomName, content, senderNick, type: 'group' })
+            }
           }
         })
         .subscribe()
@@ -330,6 +352,45 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
 
   return (
     <div className="flex h-screen overflow-hidden" style={{ background: t.bg }}>
+
+      {/* 토스트 알림 */}
+      <div className="fixed top-4 right-4 z-50 flex flex-col gap-2 pointer-events-none" style={{ maxWidth: 300 }}>
+        {toasts.map(toast => (
+          <div key={toast.id}
+            className="flex items-start gap-3 px-4 py-3 rounded-2xl shadow-lg pointer-events-auto cursor-pointer"
+            style={{ background: t.surface, border: `1px solid ${t.border}`, animation: 'slideIn 0.2s ease' }}
+            onClick={() => {
+              setToasts(prev => prev.filter(t => t.id !== toast.id))
+              // 해당 채팅방 열기
+              if (toast.type === 'dm') {
+                const room = roomList.find(r => r.id === toast.roomId)
+                if (room) openDMChat(room)
+              } else {
+                const room = [...myGroupRooms, ...chatTabGroups].find(r => r.id === toast.roomId)
+                if (room) openGroupChat(room)
+              }
+            }}>
+            <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 text-sm"
+              style={{ background: toast.type === 'dm' ? t.accent : 'linear-gradient(135deg,#f59e0b,#ef4444)', color: 'white' }}>
+              {toast.type === 'dm' ? '💬' : '👥'}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-bold truncate" style={{ color: t.text }}>
+                {toast.type === 'group' ? `${toast.roomName}` : toast.senderNick}
+              </p>
+              {toast.type === 'group' && (
+                <p className="text-xs" style={{ color: t.muted }}>{toast.senderNick}</p>
+              )}
+              <p className="text-xs truncate mt-0.5" style={{ color: t.muted }}>{toast.content}</p>
+            </div>
+            <button onClick={e => { e.stopPropagation(); setToasts(prev => prev.filter(t => t.id !== toast.id)) }}
+              className="flex-shrink-0 opacity-40 hover:opacity-100" style={{ color: t.muted }}>
+              <svg width="10" height="10" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+            </button>
+          </div>
+        ))}
+      </div>
+      <style>{`@keyframes slideIn { from { opacity: 0; transform: translateX(20px) } to { opacity: 1; transform: translateX(0) } }`}</style>
 
       {showCreateGroup && (
         <CreateGroupModal userId={userId} isDark={isDark}

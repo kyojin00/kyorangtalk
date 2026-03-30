@@ -151,8 +151,7 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
 
     const sub = supabase.channel(`group-${roomId}`, { config: { presence: { key: userId } } })
     groupSubRef.current = sub
-    sub
-      .on('broadcast', { event: 'new_message' }, async payload => {
+    sub.on('broadcast', { event: 'new_message' }, async payload => {
         const newMsg = payload.payload as GroupMessage
         if (newMsg.sender_id === userId) return
         setGroupMessages(prev => prev.find(m => m.id === newMsg.id) ? prev : [...prev, newMsg])
@@ -165,6 +164,7 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
       .on('broadcast', { event: 'message_deleted' }, ({ payload }) => {
         setGroupMessages(prev => prev.map(m => m.id === payload.msg_id ? { ...m, is_deleted: true } as any : m))
       })
+      .on('broadcast', { event: 'owner_left' }, () => {
         // 오픈방 방장이 나감 - 멤버 목록 갱신
         supabase.from('kyorangtalk_group_members').select('*').eq('room_id', roomId).then(({ data }) => {
           setGroupMembers(data ?? [])

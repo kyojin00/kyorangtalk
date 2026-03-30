@@ -46,6 +46,7 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
   useEffect(() => {
     setNotifyEnabled(localStorage.getItem('kyorangtalk-notify') !== 'off')
   }, [])
+  const openChatsRef = useRef(openChats)
   useEffect(() => { openChatsRef.current = openChats }, [openChats])
   const pMapRef = useRef(pMap)
   useEffect(() => { pMapRef.current = pMap }, [pMap])
@@ -725,11 +726,11 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
                   <span className="text-sm" style={{ color: t.text }}>이용약관</span>
                   <span style={{ color: t.muted, fontSize: 12 }}>↗</span>
                 </a>
-                <a href="mailto:rywls12450@gmail.com"
+                <a href="mailto:support@kyorang.ai.kr"
                   className="flex items-center justify-between px-4 py-3 hover:opacity-70"
                   style={{ display: 'flex', textDecoration: 'none' }}>
                   <span className="text-sm" style={{ color: t.text }}>문의하기</span>
-                  <span style={{ color: t.muted, fontSize: 12 }}>rywls12450@gmail.com</span>
+                  <span style={{ color: t.muted, fontSize: 12 }}>support@kyorang.ai.kr</span>
                 </a>
               </div>
 

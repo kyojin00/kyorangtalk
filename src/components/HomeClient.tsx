@@ -778,7 +778,6 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
         )}
         {openChats.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center gap-3">
-            <p className="text-5xl">🐱</p>
             <p className="font-medium text-sm" style={{ color: t.muted }}>대화를 선택해보세요</p>
             <p className="text-xs" style={{ color: t.label }}>여러 채팅을 동시에 열 수 있어요</p>
           </div>

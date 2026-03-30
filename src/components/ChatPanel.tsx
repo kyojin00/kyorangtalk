@@ -201,6 +201,21 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
           return next
         })
       })
+      .on('presence', { event: 'leave' }, async ({ leftPresences }) => {
+        // 상대방 퇴장 → DB에서 최신 last_read_at 다시 로드해서 readMap 갱신
+        const leftIds = (leftPresences as any[]).map((p: any) => p.user_id).filter((id: string) => id !== userId)
+        if (!leftIds.length) return
+        const { data: reads } = await supabase
+          .from('kyorangtalk_group_reads')
+          .select('user_id, last_read_at')
+          .eq('room_id', roomId)
+          .in('user_id', leftIds)
+        if (reads) setReadMap(prev => {
+          const next = { ...prev }
+          reads.forEach(r => { next[r.user_id] = r.last_read_at })
+          return next
+        })
+      })
       .subscribe(async status => {
         console.log(`[그룹 Realtime ${roomId}]`, status)
         if (status === 'SUBSCRIBED') await sub.track({ user_id: userId })
@@ -276,6 +291,10 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
     if (!openChat.groupRoom) return
     const roomId = openChat.groupRoom.id
     const myNick = gProfiles[userId]?.nickname || '누군가'
+
+    // 나가기 전 읽음 시각 기록
+    await supabase.from('kyorangtalk_group_reads')
+      .upsert({ room_id: roomId, user_id: userId, last_read_at: new Date().toISOString() }, { onConflict: 'room_id,user_id' })
 
     if (roomType === 'open' && isOwner) {
       // 오픈방 방장 나가기 → 방 유지

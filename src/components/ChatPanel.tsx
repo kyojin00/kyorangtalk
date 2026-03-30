@@ -43,6 +43,8 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
   const [uploading, setUploading] = useState(false)
   const [atBottom, setAtBottom] = useState(true)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const [replyTo, setReplyTo] = useState<{ id: string; content: string; senderNick: string } | null>(null)
+  const [contextMenu, setContextMenu] = useState<{ msgId: string; x: number; y: number; isMine: boolean; content: string } | null>(null)
   const t = useThemeColors(isDark)
 
   const partner = openChat.type === 'dm' && openChat.room
@@ -248,9 +250,11 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
     const content = input.trim()
     setInput('')
     const now = new Date().toISOString()
-    await supabase.from('kyorangtalk_messages').insert({ room_id: openChat.room!.id, sender_id: userId, content })
+    const insertData: any = { room_id: openChat.room!.id, sender_id: userId, content }
+    if (replyTo) { insertData.reply_to_id = replyTo.id; insertData.reply_to_content = replyTo.content }
+    setReplyTo(null)
+    await supabase.from('kyorangtalk_messages').insert(insertData)
     await supabase.from('kyorangtalk_rooms').update({ last_message: content, last_message_at: now }).eq('id', openChat.room.id)
-    // broadcast로 상대방 목록 즉시 갱신
     await supabase.channel(`room-update-${openChat.room.id}`).send({
       type: 'broadcast', event: 'new_message',
       payload: { room_id: openChat.room.id, content, created_at: now, sender_id: userId, type: 'dm' }
@@ -268,10 +272,12 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
     setInput('')
     const tempId = `temp-${Date.now()}`
     const now = new Date().toISOString()
-    // 낙관적 업데이트 - 내 메시지 바로 표시
-    const tempMsg: GroupMessage = { id: tempId, room_id: openChat.groupRoom.id, sender_id: userId, content, created_at: now, msg_type: 'message' }
+    const insertData: any = { room_id: openChat.groupRoom!.id, sender_id: userId, content, msg_type: 'message' }
+    if (replyTo) { insertData.reply_to_id = replyTo.id; insertData.reply_to_content = replyTo.content }
+    setReplyTo(null)
+    const tempMsg: GroupMessage = { id: tempId, room_id: openChat.groupRoom.id, sender_id: userId, content, created_at: now, msg_type: 'message' } as any
     setGroupMessages(prev => [...prev, tempMsg])
-    const { data, error } = await supabase.from('kyorangtalk_group_messages').insert({ room_id: openChat.groupRoom!.id, sender_id: userId, content, msg_type: 'message' }).select().single()
+    const { data, error } = await supabase.from('kyorangtalk_group_messages').insert(insertData).select().single()
     if (error) {
       console.error('[그룹 메시지 전송 에러]', JSON.stringify(error))
       setGroupMessages(prev => prev.filter(m => m.id !== tempId))
@@ -415,6 +421,18 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
     setKickingId(null)
   }
 
+  // 메시지 삭제
+  const deleteMessage = async (msgId: string) => {
+    setContextMenu(null)
+    if (openChat.type === 'dm') {
+      await supabase.from('kyorangtalk_messages').delete().eq('id', msgId).eq('sender_id', userId)
+      setMessages(prev => prev.filter(m => m.id !== msgId))
+    } else {
+      await supabase.from('kyorangtalk_group_messages').delete().eq('id', msgId).eq('sender_id', userId)
+      setGroupMessages(prev => prev.filter(m => m.id !== msgId))
+    }
+  }
+
   const copyInviteLink = () => {
     const link = `${window.location.origin}/join/${inviteCode}`
     navigator.clipboard.writeText(link)
@@ -486,27 +504,48 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
                   <p className="text-xs mb-0.5 ml-1" style={{ color: t.muted }}>{senderProfile?.nickname ?? '...'}</p>
                 )}
                 <div className="flex items-end gap-1.5" style={{ flexDirection: isMine ? 'row-reverse' : 'row' }}>
-                  <div className="px-3 py-2 rounded-2xl text-sm break-words" style={{
-                    background: isMine ? t.accent : t.surface,
-                    color: isMine ? '#fff' : t.text,
-                    borderRadius: isMine ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
-                    maxWidth: '100%',
-                    padding: (msg as any).image_url && !msg.content ? '4px' : undefined,
-                  }}>
-                    {(msg as any).image_url && (
-                      <img src={(msg as any).image_url} alt="이미지"
-                        className="rounded-xl cursor-pointer max-w-full"
-                        style={{ maxWidth: 220, maxHeight: 220, display: 'block', objectFit: 'cover' }}
-                        onClick={() => window.open((msg as any).image_url, '_blank')} />
+                  <div
+                    className="rounded-2xl text-sm break-words"
+                    style={{
+                      background: isMine ? t.accent : t.surface,
+                      color: isMine ? '#fff' : t.text,
+                      borderRadius: isMine ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
+                      maxWidth: '100%',
+                      overflow: 'hidden',
+                      cursor: 'pointer',
+                    }}
+                    onContextMenu={e => { e.preventDefault(); setContextMenu({ msgId: msg.id, x: e.clientX, y: e.clientY, isMine, content: msg.content }) }}
+                    onTouchStart={e => {
+                      const t2 = setTimeout(() => setContextMenu({ msgId: msg.id, x: e.touches[0].clientX, y: e.touches[0].clientY, isMine, content: msg.content }), 500)
+                      const cancel = () => { clearTimeout(t2); document.removeEventListener('touchend', cancel) }
+                      document.addEventListener('touchend', cancel)
+                    }}
+                  >
+                    {/* 답장 인용 표시 */}
+                    {(msg as any).reply_to_content && (
+                      <div className="px-3 pt-2 pb-1" style={{ borderBottom: `1px solid ${isMine ? 'rgba(255,255,255,0.2)' : t.borderSub}` }}>
+                        <div className="flex items-start gap-1.5">
+                          <div className="w-1 rounded-full flex-shrink-0 self-stretch" style={{ background: isMine ? 'rgba(255,255,255,0.6)' : t.accent, minHeight: 12 }} />
+                          <p className="text-xs opacity-70 line-clamp-2" style={{ color: isMine ? '#fff' : t.muted }}>
+                            {(msg as any).reply_to_content}
+                          </p>
+                        </div>
+                      </div>
                     )}
-                    {msg.content && <span>{msg.content}</span>}
+                    <div style={{ padding: (msg as any).image_url && !msg.content ? '4px' : '8px 12px' }}>
+                      {(msg as any).image_url && (
+                        <img src={(msg as any).image_url} alt="이미지"
+                          className="rounded-xl cursor-pointer max-w-full"
+                          style={{ maxWidth: 220, maxHeight: 220, display: 'block', objectFit: 'cover' }}
+                          onClick={() => window.open((msg as any).image_url, '_blank')} />
+                      )}
+                      {msg.content && <span>{msg.content}</span>}
+                    </div>
                   </div>
                   <div className={`flex flex-col gap-0.5 flex-shrink-0 ${isMine ? 'items-end' : 'items-start'}`}>
-                    {/* 그룹방 안읽은 멤버 수 */}
                     {unreadCount !== null && unreadCount > 0 && (
                       <span style={{ color: '#f59e0b', fontSize: 10, fontWeight: 600, lineHeight: 1 }}>{unreadCount}</span>
                     )}
-                    {/* DM 안읽음 → 1 표시 */}
                     {dmUnread && (
                       <span style={{ color: '#f59e0b', fontSize: 10, fontWeight: 600, lineHeight: 1 }}>1</span>
                     )}
@@ -524,7 +563,32 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
   }
 
   return (
-    <div className="flex h-full rounded-2xl overflow-hidden" style={{ background: t.bg, border: `1px solid ${t.border}` }}>
+    <div className="flex h-full rounded-2xl overflow-hidden" style={{ background: t.bg, border: `1px solid ${t.border}` }}
+      onClick={() => contextMenu && setContextMenu(null)}>
+
+      {/* 컨텍스트 메뉴 */}
+      {contextMenu && (
+        <div className="fixed z-50 rounded-2xl overflow-hidden shadow-xl"
+          style={{ left: Math.min(contextMenu.x, window.innerWidth - 160), top: Math.min(contextMenu.y, window.innerHeight - 120), background: t.surface, border: `1px solid ${t.border}`, minWidth: 140 }}
+          onClick={e => e.stopPropagation()}>
+          <button onClick={() => {
+            const senderNick = contextMenu.isMine ? '나' : (partner?.nickname ?? gProfiles[contextMenu.msgId]?.nickname ?? '상대')
+            setReplyTo({ id: contextMenu.msgId, content: contextMenu.content, senderNick })
+            setContextMenu(null)
+            inputRef.current?.focus()
+          }} className="w-full flex items-center gap-2.5 px-4 py-3 text-sm hover:opacity-70" style={{ color: t.text, borderBottom: `1px solid ${t.borderSub}` }}>
+            <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"/></svg>
+            답장
+          </button>
+          {contextMenu.isMine && (
+            <button onClick={() => deleteMessage(contextMenu.msgId)}
+              className="w-full flex items-center gap-2.5 px-4 py-3 text-sm hover:opacity-70" style={{ color: '#ef4444' }}>
+              <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>
+              삭제
+            </button>
+          )}
+        </div>
+      )}
       {/* 채팅 영역 */}
       <div className="flex flex-col flex-1 min-w-0 relative">
         {/* 헤더 */}
@@ -569,6 +633,19 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
 
         {/* 입력창 */}
         <div className="px-3 pb-3 pt-2 flex-shrink-0" style={{ borderTop: `1px solid ${t.borderSub}` }}>
+          {/* 답장 미리보기 */}
+          {replyTo && (
+            <div className="flex items-center gap-2 mb-2 px-3 py-2 rounded-xl" style={{ background: t.inputBg, border: `1px solid ${t.accentBorder}` }}>
+              <div className="w-1 h-full rounded-full flex-shrink-0 self-stretch" style={{ background: t.accent, minHeight: 16 }} />
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-medium mb-0.5" style={{ color: t.accentText }}>답장</p>
+                <p className="text-xs truncate" style={{ color: t.muted }}>{replyTo.content || '이미지'}</p>
+              </div>
+              <button onClick={() => setReplyTo(null)} style={{ color: t.muted, flexShrink: 0 }}>
+                <svg width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+              </button>
+            </div>
+          )}
           {inputDisabled ? (
             <div className="flex items-center justify-center rounded-2xl px-4 py-3" style={{ background: t.inputBg, border: `1px solid ${t.inputBorder}` }}>
               <p className="text-xs" style={{ color: t.muted }}>

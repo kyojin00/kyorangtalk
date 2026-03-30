@@ -38,7 +38,11 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
   const [readMap, setReadMap] = useState<Record<string, string>>({})
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const groupSubRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
+  const [uploading, setUploading] = useState(false)
+  const [atBottom, setAtBottom] = useState(true)
+  const scrollRef = useRef<HTMLDivElement>(null)
   const t = useThemeColors(isDark)
 
   const partner = openChat.type === 'dm' && openChat.room
@@ -224,9 +228,17 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
     return () => { supabase.removeChannel(sub) }
   }, [openChat.id])
 
-  // 스크롤 하단 고정
+  // 스크롤 하단 감지
+  const handleScroll = () => {
+    const el = scrollRef.current
+    if (!el) return
+    const isBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+    setAtBottom(isBottom)
+  }
+
+  // 새 메시지 오면 하단에 있을 때만 자동 스크롤
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    if (atBottom) bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, groupMessages])
 
   // DM 전송
@@ -284,6 +296,31 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
 
   const handleKey = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
+  }
+
+  const uploadImage = async (file: File) => {
+    if (!file.type.startsWith('image/')) { alert('이미지 파일만 업로드 가능해요'); return }
+    if (file.size > 5 * 1024 * 1024) { alert('5MB 이하 이미지만 업로드 가능해요'); return }
+    setUploading(true)
+    const ext = file.name.split('.').pop()
+    const path = `${userId}/${Date.now()}.${ext}`
+    const { error } = await supabase.storage.from('chat-images').upload(path, file)
+    if (error) { alert('업로드 실패'); setUploading(false); return }
+    const { data: { publicUrl } } = supabase.storage.from('chat-images').getPublicUrl(path)
+    // 이미지 URL을 메시지로 전송
+    if (openChat.type === 'dm' && openChat.room) {
+      await supabase.from('kyorangtalk_messages').insert({ room_id: openChat.room.id, sender_id: userId, content: '', image_url: publicUrl })
+      await supabase.from('kyorangtalk_rooms').update({ last_message: '📷 이미지', last_message_at: new Date().toISOString() }).eq('id', openChat.room.id)
+      onMessageSent(openChat.room.id, '📷 이미지', 'dm')
+    } else if (openChat.groupRoom) {
+      const { data } = await supabase.from('kyorangtalk_group_messages').insert({ room_id: openChat.groupRoom.id, sender_id: userId, content: '', image_url: publicUrl, msg_type: 'message' }).select().single()
+      if (data) {
+        await groupSubRef.current?.send({ type: 'broadcast', event: 'new_message', payload: data })
+        await supabase.channel(`room-update-${openChat.groupRoom.id}`).send({ type: 'broadcast', event: 'new_message', payload: { room_id: openChat.groupRoom.id, content: '📷 이미지', created_at: data.created_at, sender_id: userId, type: 'group' } })
+        onMessageSent(openChat.groupRoom.id, '📷 이미지', 'group')
+      }
+    }
+    setUploading(false)
   }
 
   // 그룹 나가기
@@ -439,8 +476,15 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
                     color: isMine ? '#fff' : t.text,
                     borderRadius: isMine ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
                     maxWidth: '100%',
+                    padding: (msg as any).image_url && !msg.content ? '4px' : undefined,
                   }}>
-                    {msg.content}
+                    {(msg as any).image_url && (
+                      <img src={(msg as any).image_url} alt="이미지"
+                        className="rounded-xl cursor-pointer max-w-full"
+                        style={{ maxWidth: 220, maxHeight: 220, display: 'block', objectFit: 'cover' }}
+                        onClick={() => window.open((msg as any).image_url, '_blank')} />
+                    )}
+                    {msg.content && <span>{msg.content}</span>}
                   </div>
                   <div className={`flex flex-col gap-0.5 flex-shrink-0 ${isMine ? 'items-end' : 'items-start'}`}>
                     {/* 그룹방 안읽은 멤버 수 */}
@@ -467,7 +511,7 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
   return (
     <div className="flex h-full rounded-2xl overflow-hidden" style={{ background: t.bg, border: `1px solid ${t.border}` }}>
       {/* 채팅 영역 */}
-      <div className="flex flex-col flex-1 min-w-0">
+      <div className="flex flex-col flex-1 min-w-0 relative">
         {/* 헤더 */}
         <div className="flex items-center gap-2.5 px-4 py-3 flex-shrink-0" style={{ borderBottom: `1px solid ${t.border}`, background: t.surface }}>
           {openChat.type === 'dm' && partner
@@ -491,10 +535,22 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
         </div>
 
         {/* 메시지 목록 */}
-        <div className="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-0.5" style={{ background: t.bg }}>
+        <div ref={scrollRef} onScroll={handleScroll}
+          className="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-0.5 relative" style={{ background: t.bg }}>
           {renderMessages()}
           <div ref={bottomRef} />
         </div>
+
+        {/* 스크롤 하단 버튼 */}
+        {!atBottom && (
+          <div className="absolute bottom-20 right-6 z-10">
+            <button onClick={() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); setAtBottom(true) }}
+              className="w-9 h-9 rounded-full flex items-center justify-center shadow-lg"
+              style={{ background: t.accent, color: 'white' }}>
+              <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M19 9l-7 7-7-7"/></svg>
+            </button>
+          </div>
+        )}
 
         {/* 입력창 */}
         <div className="px-3 pb-3 pt-2 flex-shrink-0" style={{ borderTop: `1px solid ${t.borderSub}` }}>
@@ -506,6 +562,17 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
             </div>
           ) : (
             <div className="flex items-end gap-2 rounded-2xl px-3 py-2" style={{ background: t.inputBg, border: `1px solid ${t.inputBorder}` }}>
+              {/* 이미지 업로드 버튼 */}
+              <button onClick={() => fileInputRef.current?.click()} disabled={uploading}
+                className="flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center opacity-50 hover:opacity-100 disabled:opacity-30"
+                style={{ color: t.muted }}>
+                {uploading
+                  ? <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" className="animate-spin"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4"/></svg>
+                  : <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+                }
+              </button>
+              <input ref={fileInputRef} type="file" accept="image/*" className="hidden"
+                onChange={e => { const f = e.target.files?.[0]; if (f) uploadImage(f); e.target.value = '' }} />
               <textarea
                 ref={inputRef}
                 value={input}

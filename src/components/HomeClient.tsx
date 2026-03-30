@@ -40,6 +40,7 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
   const [joinCode, setJoinCode] = useState('')
   const [joiningCode, setJoiningCode] = useState(false)
   const [exploreSearch, setExploreSearch] = useState('')
+  const [exploreCategory, setExploreCategory] = useState('전체')
   const [showPanel, setShowPanel] = useState(true)
   const openChatsRef = useRef(openChats)
   useEffect(() => { openChatsRef.current = openChats }, [openChats])
@@ -339,7 +340,11 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
   const chatGroupUnread = chatTabGroups.reduce((a, r) => openChatIds.has(r.id) ? a : a + (groupUnreadMap[r.id] || 0), 0)
   const groupTabUnread = myGroupRooms.reduce((a, r) => openChatIds.has(r.id) ? a : a + (groupUnreadMap[r.id] || 0), 0)
   const joinedIds = new Set(myGroupRooms.map(r => r.id))
-  const filteredPublic = publicRooms.filter(r => !exploreSearch || r.name.includes(exploreSearch) || r.description?.includes(exploreSearch))
+  const filteredPublic = publicRooms.filter(r => {
+    const matchSearch = !exploreSearch || r.name.includes(exploreSearch) || r.description?.includes(exploreSearch)
+    const matchCategory = exploreCategory === '전체' || r.category === exploreCategory
+    return matchSearch && matchCategory
+  })
 
   const tabs = [
     { key: 'friends' as const, icon: '👥', badge: pendingList.length },
@@ -614,9 +619,19 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
           {/* 탐색 탭 */}
           {tab === 'explore' && (
             <div>
-              <div className="px-4 py-3" style={{ borderBottom: `1px solid ${t.border}` }}>
+              <div className="px-4 py-3 space-y-2" style={{ borderBottom: `1px solid ${t.border}` }}>
                 <input type="text" placeholder="오픈방 검색..." value={exploreSearch} onChange={e => setExploreSearch(e.target.value)}
                   className="w-full text-sm rounded-xl px-4 py-2.5 outline-none" style={{ background: t.inputBg, border: `1px solid ${t.inputBorder}`, color: t.text }} />
+                {/* 카테고리 필터 */}
+                <div className="flex gap-1.5 flex-wrap">
+                  {['전체', '일반', '게임', '공부', '음악', '운동', '여행', '음식', '기타'].map(cat => (
+                    <button key={cat} onClick={() => setExploreCategory(cat)}
+                      className="px-2.5 py-1 rounded-full text-xs font-medium transition-all"
+                      style={{ background: exploreCategory === cat ? t.accent : t.inputBg, color: exploreCategory === cat ? 'white' : t.muted, border: `1px solid ${exploreCategory === cat ? t.accent : t.inputBorder}` }}>
+                      {cat}
+                    </button>
+                  ))}
+                </div>
               </div>
               <p className="px-4 pt-3 pb-1.5 text-xs font-semibold" style={{ color: t.label }}>오픈방 {filteredPublic.length}개</p>
               {filteredPublic.length === 0
@@ -627,7 +642,12 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
                     <div key={room.id} className="flex items-center gap-3 px-4 py-3.5" style={{ borderBottom: `1px solid ${t.borderSub}` }}>
                       <GroupAvatar name={room.name} size={42} />
                       <div className="flex-1 min-w-0">
-                        <p className="font-semibold text-sm truncate" style={{ color: t.text }}>{room.name}</p>
+                        <div className="flex items-center gap-1.5 mb-0.5">
+                          <p className="font-semibold text-sm truncate" style={{ color: t.text }}>{room.name}</p>
+                          {room.category && room.category !== '일반' && (
+                            <span className="text-xs px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: t.surface, color: t.muted, border: `1px solid ${t.borderSub}`, fontSize: 10 }}>{room.category}</span>
+                          )}
+                        </div>
                         <p className="text-xs" style={{ color: t.muted }}>{room.member_count}명 · {room.description || '오픈 채팅방'}</p>
                       </div>
                       <button onClick={() => joinPublicRoom(room)} className="text-xs px-3 py-1.5 rounded-full font-medium flex-shrink-0"

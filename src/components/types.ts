@@ -36,6 +36,7 @@ export interface GroupRoom {
   created_by: string
   invite_code: string
   room_type: 'open' | 'group' // 'open' = 오픈방, 'group' = 친구 그룹방
+  category: string
   member_count: number
   last_message: string | null
   last_message_at: string | null

@@ -17,6 +17,7 @@ export function CreateGroupModal({ userId, isDark, onClose, onCreated }: {
   const t = useThemeColors(isDark)
   const [groupName, setGroupName] = useState('')
   const [groupDesc, setGroupDesc] = useState('')
+  const [groupCategory, setGroupCategory] = useState('일반')
   const [inviteQuery, setInviteQuery] = useState('')
   const [inviteResults, setInviteResults] = useState<Profile[]>([])
   const [invitedMembers, setInvitedMembers] = useState<Profile[]>([])
@@ -38,6 +39,7 @@ export function CreateGroupModal({ userId, isDark, onClose, onCreated }: {
         description: groupDesc.trim() || null,
         created_by: userId,
         room_type: 'open',
+        category: groupCategory,
         member_count: invitedMembers.length + 1,
       })
       .select().single()
@@ -63,6 +65,18 @@ export function CreateGroupModal({ userId, isDark, onClose, onCreated }: {
             className="w-full text-sm rounded-xl px-4 py-3 outline-none" style={{ background: t.inputBg, border: `1px solid ${t.inputBorder}`, color: t.text }} />
           <textarea placeholder="방 설명 (선택)" value={groupDesc} onChange={e => setGroupDesc(e.target.value)} rows={2}
             className="w-full text-sm rounded-xl px-4 py-3 outline-none resize-none" style={{ background: t.inputBg, border: `1px solid ${t.inputBorder}`, color: t.text }} />
+          <div>
+            <p className="text-xs font-medium mb-2" style={{ color: t.muted }}>카테고리</p>
+            <div className="flex flex-wrap gap-1.5">
+              {['일반', '게임', '공부', '음악', '운동', '여행', '음식', '기타'].map(cat => (
+                <button key={cat} type="button" onClick={() => setGroupCategory(cat)}
+                  className="px-2.5 py-1 rounded-full text-xs font-medium"
+                  style={{ background: groupCategory === cat ? t.accent : t.inputBg, color: groupCategory === cat ? 'white' : t.muted, border: `1px solid ${groupCategory === cat ? t.accent : t.inputBorder}` }}>
+                  {cat}
+                </button>
+              ))}
+            </div>
+          </div>
           <div className="flex items-center gap-3 p-3 rounded-xl" style={{ background: t.accentLight, border: `1px solid ${t.accentBorder}` }}>
             <span className="text-lg">🌐</span>
             <div>

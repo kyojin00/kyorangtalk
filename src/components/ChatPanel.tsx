@@ -76,6 +76,13 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
         const ids = new Set(Object.values(state).flatMap(s => s.map((p: any) => p.user_id)))
         presenceIdsRef.current = ids
         setPresenceIds(new Set(ids))
+        // 접속 중인 상대방은 읽은 것으로 간주 - readMap 미래 시각으로 갱신
+        const future = new Date(Date.now() + 60000).toISOString()
+        setReadMap(prev => {
+          const next = { ...prev }
+          ids.forEach(id => { if (id !== userId) next[id] = future })
+          return next
+        })
       })
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'kyorangtalk_messages', filter: `room_id=eq.${roomId}` }, payload => {
         setMessages(prev => [...prev, payload.new as Message])
@@ -202,6 +209,13 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
         console.log('[Presence sync]', [...ids])
         presenceIdsRef.current = ids
         setPresenceIds(new Set(ids))
+        // 접속 중인 멤버는 지금 보고 있으므로 readMap을 미래 시각으로 갱신
+        const future = new Date(Date.now() + 60000).toISOString()
+        setReadMap(prev => {
+          const next = { ...prev }
+          ids.forEach(id => { if (id !== userId) next[id] = future })
+          return next
+        })
       })
       .subscribe(async status => {
         console.log(`[그룹 Realtime ${roomId}]`, status)
@@ -381,10 +395,16 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
         unreadCount = unreadMembers.length
       }
 
-      // DM 안읽음: 상대방이 presence에 있으면(채팅창 열고 있으면) 읽은 것으로 간주
-      const dmUnread = openChat.type === 'dm' && isMine && !(msg as Message).is_read && !presenceIdsRef.current.has(
-        openChat.room ? (openChat.room.user1_id === userId ? openChat.room.user2_id : openChat.room.user1_id) : ''
-      )
+      // DM 안읽음: presence에 있거나 readMap에 읽은 기록 있으면 읽음
+      const partnerId = openChat.type === 'dm' && openChat.room
+        ? (openChat.room.user1_id === userId ? openChat.room.user2_id : openChat.room.user1_id)
+        : ''
+      const dmUnread = openChat.type === 'dm' && isMine && (() => {
+        if (presenceIdsRef.current.has(partnerId)) return false
+        const lastRead = readMap[partnerId]
+        if (lastRead && lastRead >= msg.created_at) return false
+        return !(msg as Message).is_read
+      })()
 
       return (
         <div key={msg.id}>

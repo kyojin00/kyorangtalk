@@ -6,7 +6,7 @@ import { Avatar } from './TalkAvatars'
 import { useThemeColors } from './useTheme'
 import { Profile, Friend, GroupRoom } from './types'
 
-// 그룹 만들기 모달
+// 그룹 만들기 모달 (오픈방)
 export function CreateGroupModal({ userId, isDark, onClose, onCreated }: {
   userId: string
   isDark: boolean
@@ -17,7 +17,6 @@ export function CreateGroupModal({ userId, isDark, onClose, onCreated }: {
   const t = useThemeColors(isDark)
   const [groupName, setGroupName] = useState('')
   const [groupDesc, setGroupDesc] = useState('')
-  const [isPublic, setIsPublic] = useState(false)
   const [inviteQuery, setInviteQuery] = useState('')
   const [inviteResults, setInviteResults] = useState<Profile[]>([])
   const [invitedMembers, setInvitedMembers] = useState<Profile[]>([])
@@ -38,8 +37,7 @@ export function CreateGroupModal({ userId, isDark, onClose, onCreated }: {
         name: groupName.trim(),
         description: groupDesc.trim() || null,
         created_by: userId,
-        is_public: isPublic,
-        is_friend_group: false,
+        room_type: 'open',
         member_count: invitedMembers.length + 1,
       })
       .select().single()
@@ -57,22 +55,20 @@ export function CreateGroupModal({ userId, isDark, onClose, onCreated }: {
     <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.55)' }}>
       <div className="rounded-3xl p-6 w-full max-w-md mx-4 overflow-y-auto" style={{ background: t.surface, maxHeight: '90vh' }}>
         <div className="flex items-center justify-between mb-5">
-          <h3 className="font-bold" style={{ color: t.text }}>새 그룹 만들기</h3>
+          <h3 className="font-bold" style={{ color: t.text }}>새 오픈방 만들기</h3>
           <button onClick={onClose} style={{ color: t.muted }}>✕</button>
         </div>
         <div className="space-y-3">
-          <input type="text" placeholder="그룹 이름 *" value={groupName} onChange={e => setGroupName(e.target.value)}
+          <input type="text" placeholder="방 이름 *" value={groupName} onChange={e => setGroupName(e.target.value)}
             className="w-full text-sm rounded-xl px-4 py-3 outline-none" style={{ background: t.inputBg, border: `1px solid ${t.inputBorder}`, color: t.text }} />
-          <textarea placeholder="그룹 설명 (선택)" value={groupDesc} onChange={e => setGroupDesc(e.target.value)} rows={2}
+          <textarea placeholder="방 설명 (선택)" value={groupDesc} onChange={e => setGroupDesc(e.target.value)} rows={2}
             className="w-full text-sm rounded-xl px-4 py-3 outline-none resize-none" style={{ background: t.inputBg, border: `1px solid ${t.inputBorder}`, color: t.text }} />
-          <div className="flex items-center justify-between p-3 rounded-xl" style={{ background: t.inputBg, border: `1px solid ${t.inputBorder}` }}>
+          <div className="flex items-center gap-3 p-3 rounded-xl" style={{ background: t.accentLight, border: `1px solid ${t.accentBorder}` }}>
+            <span className="text-lg">🌐</span>
             <div>
-              <p className="text-sm font-medium" style={{ color: t.text }}>공개 그룹</p>
-              <p className="text-xs" style={{ color: t.muted }}>탐색에서 발견 가능</p>
+              <p className="text-sm font-medium" style={{ color: t.accentText }}>오픈방</p>
+              <p className="text-xs" style={{ color: t.muted }}>누구나 탐색에서 참여할 수 있어요</p>
             </div>
-            <button onClick={() => setIsPublic(p => !p)} className="w-11 h-6 rounded-full transition-all relative" style={{ background: isPublic ? t.accent : t.inputBorder }}>
-              <div className="w-5 h-5 rounded-full bg-white absolute top-0.5 transition-all" style={{ left: isPublic ? '22px' : '2px' }} />
-            </button>
           </div>
           <div>
             <p className="text-xs font-medium mb-2" style={{ color: t.muted }}>멤버 초대 (선택)</p>
@@ -116,7 +112,7 @@ export function CreateGroupModal({ userId, isDark, onClose, onCreated }: {
   )
 }
 
-// 새 채팅 모달 (친구 선택 → 1명이면 DM, 2명 이상이면 친구 그룹방)
+// 새 채팅 모달 (친구 선택 → 1명이면 DM, 2명 이상이면 그룹방)
 export function CreateChatModal({ userId, profile, friendList, pMap, isDark, onClose, onStartDM, onStartGroup }: {
   userId: string
   profile: Profile
@@ -146,15 +142,14 @@ export function CreateChatModal({ userId, profile, friendList, pMap, isDark, onC
       return
     }
 
-    // 2명 이상 → 친구 그룹방 (is_friend_group: true, 초대링크 불필요)
+    // 2명 이상 → 그룹방 (room_type: 'group', 초대링크 불필요)
     const name = roomName.trim() || `${profile.nickname}, ${selected.map(f => f.nickname).join(', ')}`
     const { data: room } = await supabase
       .from('kyorangtalk_group_rooms')
       .insert({
         name,
         created_by: userId,
-        is_public: false,
-        is_friend_group: true,
+        room_type: 'group',
         member_count: selected.length + 1,
       })
       .select().single()
@@ -227,7 +222,7 @@ export function CreateChatModal({ userId, profile, friendList, pMap, isDark, onC
           <button onClick={handleStart} disabled={selected.length === 0 || creating}
             className="flex-1 py-3 rounded-xl text-sm font-bold text-white disabled:opacity-40"
             style={{ background: t.accent }}>
-            {creating ? '시작 중...' : selected.length === 1 ? '채팅 시작' : `${selected.length + 1}명 채팅 시작`}
+            {creating ? '시작 중...' : selected.length === 1 ? '채팅 시작' : `${selected.length + 1}명 그룹방 시작`}
           </button>
           <button onClick={onClose} className="px-5 py-3 rounded-xl text-sm" style={{ background: t.inputBg, color: t.muted }}>취소</button>
         </div>

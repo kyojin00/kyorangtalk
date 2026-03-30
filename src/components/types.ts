@@ -35,9 +35,10 @@ export interface GroupRoom {
   description: string | null
   created_by: string
   invite_code: string
-  is_public: boolean
-  is_friend_group: boolean
+  room_type: 'open' | 'group' // 'open' = 오픈방, 'group' = 친구 그룹방
   member_count: number
+  last_message: string | null
+  last_message_at: string | null
 }
 
 export interface GroupMessage {

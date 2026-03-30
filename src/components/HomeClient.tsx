@@ -30,8 +30,8 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
   const [pMap, setPMap] = useState(profileMap)
   const [roomList, setRoomList] = useState(rooms)
   const [openChats, setOpenChats] = useState<OpenChat[]>([])
-  const [myGroupRooms, setMyGroupRooms] = useState<GroupRoom[]>([])
-  const [chatTabGroups, setChatTabGroups] = useState<GroupRoom[]>([])
+  const [myGroupRooms, setMyGroupRooms] = useState<GroupRoom[]>([])   // 오픈방 (그룹탭)
+  const [chatTabGroups, setChatTabGroups] = useState<GroupRoom[]>([]) // 그룹방 (채팅탭)
   const [publicRooms, setPublicRooms] = useState<GroupRoom[]>([])
   const [unreadMap, setUnreadMap] = useState<Record<string, number>>({})
   const [groupUnreadMap, setGroupUnreadMap] = useState<Record<string, number>>({})
@@ -92,13 +92,13 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
     if (!memberRows?.length) return
     const { data } = await supabase.from('kyorangtalk_group_rooms').select('*').in('id', memberRows.map(m => m.room_id)).order('created_at', { ascending: false })
     if (data) {
-      setMyGroupRooms(data.filter(r => !r.is_friend_group))
-      setChatTabGroups(data.filter(r => r.is_friend_group))
+      setMyGroupRooms(data.filter(r => r.room_type === 'open'))   // 오픈방 → 그룹탭
+      setChatTabGroups(data.filter(r => r.room_type === 'group')) // 그룹방 → 채팅탭
     }
   }
 
   const loadPublicRooms = async () => {
-    const { data } = await supabase.from('kyorangtalk_group_rooms').select('*').eq('is_public', true).order('member_count', { ascending: false }).limit(50)
+    const { data } = await supabase.from('kyorangtalk_group_rooms').select('*').eq('room_type', 'open').order('member_count', { ascending: false }).limit(50)
     if (data) setPublicRooms(data)
   }
 
@@ -138,7 +138,6 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
     if (nr) { setRoomList(prev => [nr, ...prev]); openDMChat(nr); setTab('chats') }
   }
 
-  // 공개방 참여 시 입장 메시지 전송
   const sendJoinMessage = async (roomId: string, nickname: string) => {
     await supabase.from('kyorangtalk_group_messages').insert({
       room_id: roomId,
@@ -157,13 +156,17 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
     if (!ex) {
       await supabase.from('kyorangtalk_group_members').insert({ room_id: room.id, user_id: userId, role: 'member' })
       await supabase.from('kyorangtalk_group_rooms').update({ member_count: (room.member_count || 1) + 1 }).eq('id', room.id)
-      setMyGroupRooms(prev => [room, ...prev])
-      // 공개방이면 입장 메시지
-      if (room.is_public) await sendJoinMessage(room.id, profile.nickname)
+      // 오픈방이면 입장 메시지 + 목록 추가, 그룹방이면 채팅탭에 추가
+      if (room.room_type === 'open') {
+        setMyGroupRooms(prev => [room, ...prev])
+        await sendJoinMessage(room.id, profile.nickname)
+      } else {
+        setChatTabGroups(prev => [room, ...prev])
+      }
     }
     setJoinCode('')
     openGroupChat(room)
-    setTab('groups')
+    setTab(room.room_type === 'open' ? 'groups' : 'chats')
     setJoiningCode(false)
   }
 
@@ -173,7 +176,6 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
       await supabase.from('kyorangtalk_group_members').insert({ room_id: room.id, user_id: userId, role: 'member' })
       await supabase.from('kyorangtalk_group_rooms').update({ member_count: (room.member_count || 1) + 1 }).eq('id', room.id)
       setMyGroupRooms(prev => [room, ...prev])
-      // 공개방 입장 메시지
       await sendJoinMessage(room.id, profile.nickname)
     }
     openGroupChat(room)
@@ -229,11 +231,11 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
   const tabs = [
     { key: 'friends' as const, icon: '👥', badge: pendingList.length },
     { key: 'chats' as const, icon: '💬', badge: dmUnread + chatGroupUnread },
-    { key: 'groups' as const, icon: '🏠', badge: groupTabUnread },
+    { key: 'groups' as const, icon: '🌐', badge: groupTabUnread },
     { key: 'explore' as const, icon: '🔍', badge: 0 },
     { key: 'settings' as const, icon: '⚙️', badge: 0 },
   ]
-  const tabLabel: Record<string, string> = { friends: '친구', chats: '채팅', groups: '그룹', explore: '탐색', settings: '설정' }
+  const tabLabel: Record<string, string> = { friends: '친구', chats: '채팅', groups: '오픈방', explore: '탐색', settings: '설정' }
 
   return (
     <div className="flex h-screen overflow-hidden" style={{ background: t.bg }}>
@@ -243,7 +245,7 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
           onClose={() => setShowCreateGroup(false)}
           onCreated={(room) => {
             setMyGroupRooms(prev => [room, ...prev])
-            if (room.is_public) setPublicRooms(prev => [room, ...prev])
+            if (room.room_type === 'open') setPublicRooms(prev => [room, ...prev])
             setShowCreateGroup(false)
             openGroupChat(room)
             setTab('groups')
@@ -413,11 +415,11 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
             </div>
           )}
 
-          {/* 그룹 탭 */}
+          {/* 오픈방 탭 */}
           {tab === 'groups' && (
             <div>
               <div className="px-4 py-3 space-y-2" style={{ borderBottom: `1px solid ${t.border}` }}>
-                <button onClick={() => setShowCreateGroup(true)} className="w-full py-2 rounded-xl text-sm font-medium text-white" style={{ background: t.accent }}>+ 새 그룹 만들기</button>
+                <button onClick={() => setShowCreateGroup(true)} className="w-full py-2 rounded-xl text-sm font-medium text-white" style={{ background: t.accent }}>+ 새 오픈방 만들기</button>
                 <div className="flex gap-2">
                   <input type="text" placeholder="초대 코드 입력" value={joinCode} onChange={e => setJoinCode(e.target.value)}
                     onKeyDown={e => e.key === 'Enter' && joinGroupByCode()}
@@ -427,7 +429,7 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
                 </div>
               </div>
               {myGroupRooms.length === 0
-                ? <div className="text-center py-16"><p className="text-3xl mb-3">🏠</p><p className="text-sm" style={{ color: t.muted }}>그룹이 없어요</p></div>
+                ? <div className="text-center py-16"><p className="text-3xl mb-3">🌐</p><p className="text-sm" style={{ color: t.muted }}>참여한 오픈방이 없어요</p></div>
                 : myGroupRooms.map(room => {
                   const unread = groupUnreadMap[room.id] || 0; const isOpen = !!openChats.find(c => c.id === room.id)
                   return (
@@ -439,9 +441,9 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-1.5 mb-0.5">
                           <p className="font-semibold text-sm truncate" style={{ color: t.text }}>{room.name}</p>
-                          {room.is_public && <span className="text-xs px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: t.accentLight, color: t.accentText, fontSize: 10 }}>공개</span>}
+                          <span className="text-xs px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: t.accentLight, color: t.accentText, fontSize: 10 }}>오픈</span>
                         </div>
-                        <p className="text-xs" style={{ color: t.muted }}>{room.member_count}명 · {room.description || '그룹 채팅방'}</p>
+                        <p className="text-xs" style={{ color: t.muted }}>{room.member_count}명 · {room.description || '오픈 채팅방'}</p>
                       </div>
                     </button>
                   )
@@ -454,12 +456,12 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
           {tab === 'explore' && (
             <div>
               <div className="px-4 py-3" style={{ borderBottom: `1px solid ${t.border}` }}>
-                <input type="text" placeholder="그룹 검색..." value={exploreSearch} onChange={e => setExploreSearch(e.target.value)}
+                <input type="text" placeholder="오픈방 검색..." value={exploreSearch} onChange={e => setExploreSearch(e.target.value)}
                   className="w-full text-sm rounded-xl px-4 py-2.5 outline-none" style={{ background: t.inputBg, border: `1px solid ${t.inputBorder}`, color: t.text }} />
               </div>
-              <p className="px-4 pt-3 pb-1.5 text-xs font-semibold" style={{ color: t.label }}>공개 그룹 {filteredPublic.length}개</p>
+              <p className="px-4 pt-3 pb-1.5 text-xs font-semibold" style={{ color: t.label }}>오픈방 {filteredPublic.length}개</p>
               {filteredPublic.length === 0
-                ? <div className="text-center py-12"><p className="text-3xl mb-3">🔍</p><p className="text-sm" style={{ color: t.muted }}>공개 그룹이 없어요</p></div>
+                ? <div className="text-center py-12"><p className="text-3xl mb-3">🔍</p><p className="text-sm" style={{ color: t.muted }}>오픈방이 없어요</p></div>
                 : filteredPublic.map(room => {
                   const alreadyJoined = joinedIds.has(room.id)
                   return (
@@ -467,7 +469,7 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
                       <GroupAvatar name={room.name} size={42} />
                       <div className="flex-1 min-w-0">
                         <p className="font-semibold text-sm truncate" style={{ color: t.text }}>{room.name}</p>
-                        <p className="text-xs" style={{ color: t.muted }}>{room.member_count}명 · {room.description || '공개 그룹'}</p>
+                        <p className="text-xs" style={{ color: t.muted }}>{room.member_count}명 · {room.description || '오픈 채팅방'}</p>
                       </div>
                       <button onClick={() => joinPublicRoom(room)} className="text-xs px-3 py-1.5 rounded-full font-medium flex-shrink-0"
                         style={alreadyJoined ? { background: t.accentLight, color: t.accentText } : { background: t.accent, color: 'white' }}>

@@ -24,8 +24,7 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
   const [sending, setSending] = useState(false)
   const [showInfo, setShowInfo] = useState(false)
   const [inviteCode, setInviteCode] = useState(openChat.groupRoom?.invite_code ?? '')
-  const [isFriendGroup, setIsFriendGroup] = useState(openChat.groupRoom?.is_friend_group ?? false)
-  const [isPublicGroup, setIsPublicGroup] = useState(openChat.groupRoom?.is_public ?? false)
+  const roomType = openChat.groupRoom?.room_type ?? 'group' // 'open' | 'group'
   const [copied, setCopied] = useState(false)
   const [kickingId, setKickingId] = useState<string | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -369,7 +368,7 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
           </div>
 
           {/* 초대 링크 (비공개 방 또는 방장) */}
-          {(!isPublicGroup || isOwner) && !isFriendGroup && (
+          {(roomType === 'group' || isOwner) && (
             <div className="px-4 py-3" style={{ borderBottom: `1px solid ${t.borderSub}` }}>
               <p className="text-xs font-bold mb-2" style={{ color: t.muted }}>초대</p>
               <button onClick={copyInviteLink}

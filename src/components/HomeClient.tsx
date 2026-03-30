@@ -282,9 +282,11 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
   const getPartner = (r: Room) => pMap[r.user1_id === userId ? r.user2_id : r.user1_id]
   const toggleTheme = (dark: boolean) => { setIsDark(dark); localStorage.setItem('kyorangtalk-theme', dark ? 'dark' : 'light') }
 
-  const dmUnread = Object.values(unreadMap).reduce((a, b) => a + b, 0)
-  const chatGroupUnread = chatTabGroups.reduce((a, r) => a + (groupUnreadMap[r.id] || 0), 0)
-  const groupTabUnread = myGroupRooms.reduce((a, r) => a + (groupUnreadMap[r.id] || 0), 0)
+  const openChatIds = new Set(openChats.map(c => c.id))
+
+  const dmUnread = Object.entries(unreadMap).reduce((a, [id, n]) => openChatIds.has(id) ? a : a + n, 0)
+  const chatGroupUnread = chatTabGroups.reduce((a, r) => openChatIds.has(r.id) ? a : a + (groupUnreadMap[r.id] || 0), 0)
+  const groupTabUnread = myGroupRooms.reduce((a, r) => openChatIds.has(r.id) ? a : a + (groupUnreadMap[r.id] || 0), 0)
   const joinedIds = new Set(myGroupRooms.map(r => r.id))
   const filteredPublic = publicRooms.filter(r => !exploreSearch || r.name.includes(exploreSearch) || r.description?.includes(exploreSearch))
 
@@ -439,7 +441,7 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
                   <button key={room.id} onClick={() => openDMChat(room)} className="w-full flex items-center gap-3 px-4 py-3.5 text-left hover:opacity-70"
                     style={{ borderBottom: `1px solid ${t.borderSub}`, background: isOpen ? t.accentLight : 'transparent' }}>
                     <div className="relative"><Avatar p={partner} size={42} />
-                      {unread > 0 && <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full text-white flex items-center justify-center font-bold" style={{ background: '#ef4444', fontSize: 9 }}>{unread}</span>}
+                      {unread > 0 && !isOpen && <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full text-white flex items-center justify-center font-bold" style={{ background: '#ef4444', fontSize: 9 }}>{unread}</span>}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex justify-between mb-0.5">
@@ -457,7 +459,7 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
                   <button key={room.id} onClick={() => openGroupChat(room)} className="w-full flex items-center gap-3 px-4 py-3.5 text-left hover:opacity-70"
                     style={{ borderBottom: `1px solid ${t.borderSub}`, background: isOpen ? t.accentLight : 'transparent' }}>
                     <div className="relative"><GroupAvatar name={room.name} size={42} />
-                      {unread > 0 && <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full text-white flex items-center justify-center font-bold" style={{ background: '#ef4444', fontSize: 9 }}>{unread}</span>}
+                      {unread > 0 && !isOpen && <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full text-white flex items-center justify-center font-bold" style={{ background: '#ef4444', fontSize: 9 }}>{unread}</span>}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5 mb-0.5">
@@ -496,7 +498,7 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
                     <button key={room.id} onClick={() => openGroupChat(room)} className="w-full flex items-center gap-3 px-4 py-3.5 text-left hover:opacity-70"
                       style={{ borderBottom: `1px solid ${t.borderSub}`, background: isOpen ? t.accentLight : 'transparent' }}>
                       <div className="relative"><GroupAvatar name={room.name} size={42} />
-                        {unread > 0 && <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full text-white flex items-center justify-center font-bold" style={{ background: '#ef4444', fontSize: 9 }}>{unread}</span>}
+                        {unread > 0 && !isOpen && <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full text-white flex items-center justify-center font-bold" style={{ background: '#ef4444', fontSize: 9 }}>{unread}</span>}
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-1.5 mb-0.5">

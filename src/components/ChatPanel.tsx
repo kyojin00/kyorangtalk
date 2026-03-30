@@ -187,11 +187,23 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
   // 그룹 나가기
   const leaveGroup = async () => {
     if (!openChat.groupRoom) return
-    if (!confirm('채팅방을 나가시겠어요?')) return
     const roomId = openChat.groupRoom.id
     const myNick = gProfiles[userId]?.nickname || '누군가'
-    await supabase.from('kyorangtalk_group_members').delete().eq('room_id', roomId).eq('user_id', userId)
-    await supabase.from('kyorangtalk_group_messages').insert({ room_id: roomId, sender_id: userId, content: `${myNick}님이 나갔어요.`, msg_type: 'system' })
+
+    if (isOwner) {
+      if (!confirm('방장이 나가면 채팅방이 삭제됩니다.\n정말 나가시겠어요?')) return
+      // 방 삭제 (DB cascade로 members, messages 함께 삭제되어야 함)
+      // cascade 미설정 시를 대비해 순서대로 삭제
+      await supabase.from('kyorangtalk_group_messages').delete().eq('room_id', roomId)
+      await supabase.from('kyorangtalk_group_members').delete().eq('room_id', roomId)
+      await supabase.from('kyorangtalk_group_reads').delete().eq('room_id', roomId)
+      await supabase.from('kyorangtalk_group_rooms').delete().eq('id', roomId)
+    } else {
+      if (!confirm('채팅방을 나가시겠어요?')) return
+      await supabase.from('kyorangtalk_group_members').delete().eq('room_id', roomId).eq('user_id', userId)
+      await supabase.from('kyorangtalk_group_messages').insert({ room_id: roomId, sender_id: userId, content: `${myNick}님이 나갔어요.`, msg_type: 'system' })
+    }
+
     onLeaveGroup(roomId)
     onClose(openChat.id)
   }
@@ -313,23 +325,36 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
 
         {/* 입력창 */}
         <div className="px-3 pb-3 pt-2 flex-shrink-0" style={{ borderTop: `1px solid ${t.borderSub}` }}>
-          <div className="flex items-end gap-2 rounded-2xl px-3 py-2" style={{ background: t.inputBg, border: `1px solid ${t.inputBorder}` }}>
-            <textarea
-              ref={inputRef}
-              value={input}
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={handleKey}
-              placeholder="메시지 입력..."
-              rows={1}
-              className="flex-1 resize-none bg-transparent text-sm outline-none"
-              style={{ color: t.text, maxHeight: 120, lineHeight: '1.5' }}
-            />
-            <button onClick={handleSend} disabled={!input.trim() || sending}
-              className="flex-shrink-0 w-8 h-8 rounded-xl flex items-center justify-center transition-opacity disabled:opacity-30"
-              style={{ background: t.accent }}>
-              <svg width="14" height="14" fill="none" stroke="white" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z"/></svg>
-            </button>
-          </div>
+          {openChat.type === 'group' && !isOwner ? (
+            /* 일반 멤버: 메시지 전송 불가, 나가기만 가능 */
+            <div className="flex items-center gap-2 rounded-2xl px-4 py-2.5" style={{ background: t.inputBg, border: `1px solid ${t.inputBorder}` }}>
+              <p className="flex-1 text-xs text-center" style={{ color: t.muted }}>채팅은 방장만 가능해요</p>
+              <button
+                onClick={leaveGroup}
+                className="flex-shrink-0 px-3 py-1.5 rounded-xl text-xs font-medium"
+                style={{ background: 'rgba(239,68,68,0.10)', color: '#ef4444' }}>
+                나가기
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-end gap-2 rounded-2xl px-3 py-2" style={{ background: t.inputBg, border: `1px solid ${t.inputBorder}` }}>
+              <textarea
+                ref={inputRef}
+                value={input}
+                onChange={e => setInput(e.target.value)}
+                onKeyDown={handleKey}
+                placeholder="메시지 입력..."
+                rows={1}
+                className="flex-1 resize-none bg-transparent text-sm outline-none"
+                style={{ color: t.text, maxHeight: 120, lineHeight: '1.5' }}
+              />
+              <button onClick={handleSend} disabled={!input.trim() || sending}
+                className="flex-shrink-0 w-8 h-8 rounded-xl flex items-center justify-center transition-opacity disabled:opacity-30"
+                style={{ background: t.accent }}>
+                <svg width="14" height="14" fill="none" stroke="white" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z"/></svg>
+              </button>
+            </div>
+          )}
         </div>
       </div>
 

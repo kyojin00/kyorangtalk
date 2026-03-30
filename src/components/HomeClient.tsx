@@ -74,8 +74,33 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
       })
       .subscribe()
 
+    // 채널: 오픈방 삭제/멤버수 변경 실시간 반영
+    const subRooms = supabase.channel('open-rooms-watch')
+      .on('postgres_changes', {
+        event: 'DELETE',
+        schema: 'public',
+        table: 'kyorangtalk_group_rooms',
+      }, payload => {
+        const deletedId = (payload.old as { id: string }).id
+        setPublicRooms(prev => prev.filter(r => r.id !== deletedId))
+        setMyGroupRooms(prev => prev.filter(r => r.id !== deletedId))
+        setChatTabGroups(prev => prev.filter(r => r.id !== deletedId))
+      })
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'kyorangtalk_group_rooms',
+      }, payload => {
+        const updated = payload.new as GroupRoom
+        setPublicRooms(prev => prev.map(r => r.id === updated.id ? { ...r, ...updated } : r))
+        setMyGroupRooms(prev => prev.map(r => r.id === updated.id ? { ...r, ...updated } : r))
+        setChatTabGroups(prev => prev.map(r => r.id === updated.id ? { ...r, ...updated } : r))
+      })
+      .subscribe()
+
     return () => {
       supabase.removeChannel(subMembers)
+      supabase.removeChannel(subRooms)
     }
   }, [])
 

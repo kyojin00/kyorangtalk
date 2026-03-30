@@ -6,7 +6,7 @@ import { Avatar, GroupAvatar } from './TalkAvatars'
 import { useThemeColors, fmtTime, fmtDate, isSameDay, isSameMin } from './useTheme'
 import { OpenChat, Message, GroupMessage, GroupMember, Profile } from './types'
 
-export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onMarkRead, onLeaveGroup }: {
+export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onMarkRead, onLeaveGroup, onMessageSent }: {
   openChat: OpenChat
   userId: string
   pMap: Record<string, Profile>
@@ -14,6 +14,7 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
   onClose: (id: string) => void
   onMarkRead: (roomId: string) => void
   onLeaveGroup: (roomId: string) => void
+  onMessageSent: (roomId: string, content: string, type: 'dm' | 'group') => void
 }) {
   const supabase = createClient()
   const [messages, setMessages] = useState<Message[]>([])
@@ -176,6 +177,7 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
     setInput('')
     await supabase.from('kyorangtalk_messages').insert({ room_id: openChat.room!.id, sender_id: userId, content })
     await supabase.from('kyorangtalk_rooms').update({ last_message: content, last_message_at: new Date().toISOString() }).eq('id', openChat.room.id)
+    onMessageSent(openChat.room.id, content, 'dm')
     setSending(false)
     inputRef.current?.focus()
   }
@@ -196,8 +198,8 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
       console.error('[그룹 메시지 전송 에러]', JSON.stringify(error))
       setGroupMessages(prev => prev.filter(m => m.id !== tempId))
     } else if (data) {
-      // temp 메시지를 실제 메시지로 교체
       setGroupMessages(prev => prev.map(m => m.id === tempId ? data as GroupMessage : m))
+      onMessageSent(openChat.groupRoom!.id, content, 'group')
     }
     setSending(false)
     inputRef.current?.focus()

@@ -588,6 +588,25 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
               onClose={closeChat}
               onMarkRead={handleMarkRead}
               onLeaveGroup={handleLeaveGroup}
+              onMessageSent={(roomId, content, type) => {
+                const now = new Date().toISOString()
+                if (type === 'dm') {
+                  setRoomList(prev => {
+                    const idx = prev.findIndex(r => r.id === roomId)
+                    if (idx === -1) return prev
+                    const updated = { ...prev[idx], last_message: content, last_message_at: now }
+                    return [updated, ...prev.filter(r => r.id !== roomId)]
+                  })
+                } else {
+                  const applyUpdate = (prev: GroupRoom[]) => {
+                    const idx = prev.findIndex(r => r.id === roomId)
+                    if (idx === -1) return prev
+                    return [{ ...prev[idx], last_message: content, last_message_at: now }, ...prev.filter(r => r.id !== roomId)]
+                  }
+                  setMyGroupRooms(applyUpdate)
+                  setChatTabGroups(applyUpdate)
+                }
+              }}
             />
           </div>
         ))}

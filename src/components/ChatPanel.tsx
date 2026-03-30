@@ -197,11 +197,7 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
 
     if (isOwner) {
       if (!confirm('방장이 나가면 채팅방이 삭제됩니다.\n정말 나가시겠어요?')) return
-      // 방 삭제 (DB cascade로 members, messages 함께 삭제되어야 함)
-      // cascade 미설정 시를 대비해 순서대로 삭제
-      await supabase.from('kyorangtalk_group_messages').delete().eq('room_id', roomId)
-      await supabase.from('kyorangtalk_group_members').delete().eq('room_id', roomId)
-      await supabase.from('kyorangtalk_group_reads').delete().eq('room_id', roomId)
+      // cascade 설정으로 members, messages, reads 자동 삭제
       await supabase.from('kyorangtalk_group_rooms').delete().eq('id', roomId)
     } else {
       if (!confirm('채팅방을 나가시겠어요?')) return

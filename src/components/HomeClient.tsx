@@ -69,6 +69,32 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
           setChatTabGroups(prev => prev.find(r => r.id === room.id) ? prev : [room, ...prev])
         }
       })
+      // DM 목록 마지막 메시지 실시간 반영
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'kyorangtalk_rooms',
+      }, payload => {
+        const updated = payload.new as Room
+        setRoomList(prev => {
+          const exists = prev.find(r => r.id === updated.id)
+          if (!exists) return prev
+          // 최신 메시지 방을 맨 위로
+          const filtered = prev.filter(r => r.id !== updated.id)
+          return [{ ...exists, ...updated }, ...filtered]
+        })
+      })
+      // 그룹방 목록 마지막 메시지 실시간 반영
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'kyorangtalk_group_rooms',
+      }, payload => {
+        const updated = payload.new as GroupRoom
+        setMyGroupRooms(prev => prev.map(r => r.id === updated.id ? { ...r, ...updated } : r))
+        setChatTabGroups(prev => prev.map(r => r.id === updated.id ? { ...r, ...updated } : r))
+        setPublicRooms(prev => prev.map(r => r.id === updated.id ? { ...r, ...updated } : r))
+      })
       .subscribe()
 
     return () => { supabase.removeChannel(sub) }

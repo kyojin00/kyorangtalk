@@ -264,8 +264,8 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
         unreadCount = otherMembers.length - readCount
       }
 
-      // DM 읽음 여부
-      const dmRead = openChat.type === 'dm' && isMine && (msg as Message).is_read
+      // DM 안읽음 여부 (내가 보낸 메시지, 상대가 아직 안 읽은 경우)
+      const dmUnread = openChat.type === 'dm' && isMine && !(msg as Message).is_read
 
       return (
         <div key={msg.id}>
@@ -299,13 +299,13 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
                     {msg.content}
                   </div>
                   <div className="flex flex-col items-end gap-0.5 flex-shrink-0">
-                    {/* 그룹방 안읽은 수 */}
+                    {/* 그룹방 안읽은 멤버 수 */}
                     {unreadCount !== null && unreadCount > 0 && (
                       <span style={{ color: '#f59e0b', fontSize: 10, fontWeight: 600, lineHeight: 1 }}>{unreadCount}</span>
                     )}
-                    {/* DM 읽음 표시 */}
-                    {dmRead && (
-                      <span style={{ color: t.accentText, fontSize: 10, lineHeight: 1 }}>읽음</span>
+                    {/* DM 안읽음 → 1 표시 */}
+                    {dmUnread && (
+                      <span style={{ color: '#f59e0b', fontSize: 10, fontWeight: 600, lineHeight: 1 }}>1</span>
                     )}
                     {!hideTime && (
                       <span className="text-xs" style={{ color: t.label, fontSize: 10 }}>{fmtTime(msg.created_at)}</span>
@@ -354,36 +354,23 @@ export default function ChatPanel({ openChat, userId, pMap, isDark, onClose, onM
 
         {/* 입력창 */}
         <div className="px-3 pb-3 pt-2 flex-shrink-0" style={{ borderTop: `1px solid ${t.borderSub}` }}>
-          {openChat.type === 'group' && !isOwner ? (
-            /* 일반 멤버: 메시지 전송 불가, 나가기만 가능 */
-            <div className="flex items-center gap-2 rounded-2xl px-4 py-2.5" style={{ background: t.inputBg, border: `1px solid ${t.inputBorder}` }}>
-              <p className="flex-1 text-xs text-center" style={{ color: t.muted }}>채팅은 방장만 가능해요</p>
-              <button
-                onClick={leaveGroup}
-                className="flex-shrink-0 px-3 py-1.5 rounded-xl text-xs font-medium"
-                style={{ background: 'rgba(239,68,68,0.10)', color: '#ef4444' }}>
-                나가기
-              </button>
-            </div>
-          ) : (
-            <div className="flex items-end gap-2 rounded-2xl px-3 py-2" style={{ background: t.inputBg, border: `1px solid ${t.inputBorder}` }}>
-              <textarea
-                ref={inputRef}
-                value={input}
-                onChange={e => setInput(e.target.value)}
-                onKeyDown={handleKey}
-                placeholder="메시지 입력..."
-                rows={1}
-                className="flex-1 resize-none bg-transparent text-sm outline-none"
-                style={{ color: t.text, maxHeight: 120, lineHeight: '1.5' }}
-              />
-              <button onClick={handleSend} disabled={!input.trim() || sending}
-                className="flex-shrink-0 w-8 h-8 rounded-xl flex items-center justify-center transition-opacity disabled:opacity-30"
-                style={{ background: t.accent }}>
-                <svg width="14" height="14" fill="none" stroke="white" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z"/></svg>
-              </button>
-            </div>
-          )}
+          <div className="flex items-end gap-2 rounded-2xl px-3 py-2" style={{ background: t.inputBg, border: `1px solid ${t.inputBorder}` }}>
+            <textarea
+              ref={inputRef}
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={handleKey}
+              placeholder="메시지 입력..."
+              rows={1}
+              className="flex-1 resize-none bg-transparent text-sm outline-none"
+              style={{ color: t.text, maxHeight: 120, lineHeight: '1.5' }}
+            />
+            <button onClick={handleSend} disabled={!input.trim() || sending}
+              className="flex-shrink-0 w-8 h-8 rounded-xl flex items-center justify-center transition-opacity disabled:opacity-30"
+              style={{ background: t.accent }}>
+              <svg width="14" height="14" fill="none" stroke="white" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z"/></svg>
+            </button>
+          </div>
         </div>
       </div>
 

@@ -663,6 +663,7 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
           {/* 설정 탭 */}
           {tab === 'settings' && (
             <div className="p-4 space-y-3">
+              {/* 프로필 */}
               <button onClick={() => router.push('/profile')} className="w-full flex items-center gap-3 p-3.5 rounded-2xl text-left hover:opacity-70" style={{ background: t.surface, border: `1px solid ${t.border}` }}>
                 <Avatar p={profile} size={44} />
                 <div className="flex-1 min-w-0">
@@ -671,6 +672,8 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
                 </div>
                 <span style={{ color: t.muted }}>✏️</span>
               </button>
+
+              {/* 테마 */}
               <div className="rounded-2xl overflow-hidden" style={{ background: t.surface, border: `1px solid ${t.border}` }}>
                 <p className="px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style={{ color: t.label, borderBottom: `1px solid ${t.borderSub}` }}>테마</p>
                 <div className="flex">
@@ -682,8 +685,76 @@ export default function HomeClient({ userId, profile, friends, pending, rooms, p
                   </button>
                 </div>
               </div>
+
+              {/* 알림 설정 */}
+              <div className="rounded-2xl overflow-hidden" style={{ background: t.surface, border: `1px solid ${t.border}` }}>
+                <p className="px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style={{ color: t.label, borderBottom: `1px solid ${t.borderSub}` }}>알림</p>
+                <div className="flex items-center justify-between px-4 py-3">
+                  <div>
+                    <p className="text-sm font-medium" style={{ color: t.text }}>채팅 알림</p>
+                    <p className="text-xs" style={{ color: t.muted }}>새 메시지 토스트 알림</p>
+                  </div>
+                  <button onClick={() => {
+                    const v = localStorage.getItem('kyorangtalk-notify') !== 'off'
+                    localStorage.setItem('kyorangtalk-notify', v ? 'off' : 'on')
+                    window.dispatchEvent(new Event('notify-change'))
+                  }} className="w-11 h-6 rounded-full transition-all relative flex-shrink-0"
+                    style={{ background: localStorage.getItem('kyorangtalk-notify') !== 'off' ? t.accent : t.inputBorder }}>
+                    <div className="w-5 h-5 rounded-full bg-white absolute top-0.5 transition-all"
+                      style={{ left: localStorage.getItem('kyorangtalk-notify') !== 'off' ? '22px' : '2px' }} />
+                  </button>
+                </div>
+              </div>
+
+              {/* 서비스 정보 */}
+              <div className="rounded-2xl overflow-hidden" style={{ background: t.surface, border: `1px solid ${t.border}` }}>
+                <p className="px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style={{ color: t.label, borderBottom: `1px solid ${t.borderSub}` }}>서비스</p>
+                <a href="https://kyorang.ai.kr/privacy" target="_blank" rel="noopener noreferrer"
+                  className="flex items-center justify-between px-4 py-3 hover:opacity-70"
+                  style={{ borderBottom: `1px solid ${t.borderSub}`, display: 'flex', textDecoration: 'none' }}>
+                  <span className="text-sm" style={{ color: t.text }}>개인정보 처리방침</span>
+                  <span style={{ color: t.muted, fontSize: 12 }}>↗</span>
+                </a>
+                <a href="https://kyorang.ai.kr/terms" target="_blank" rel="noopener noreferrer"
+                  className="flex items-center justify-between px-4 py-3 hover:opacity-70"
+                  style={{ borderBottom: `1px solid ${t.borderSub}`, display: 'flex', textDecoration: 'none' }}>
+                  <span className="text-sm" style={{ color: t.text }}>이용약관</span>
+                  <span style={{ color: t.muted, fontSize: 12 }}>↗</span>
+                </a>
+                <a href="mailto:rywls123450@gmail.com"
+                  className="flex items-center justify-between px-4 py-3 hover:opacity-70"
+                  style={{ display: 'flex', textDecoration: 'none' }}>
+                  <span className="text-sm" style={{ color: t.text }}>문의하기</span>
+                  <span style={{ color: t.muted, fontSize: 12 }}>rywls123450@gmail.com</span>
+                </a>
+              </div>
+
+              {/* 버전 */}
+              <div className="px-4 py-2.5 rounded-2xl flex items-center justify-between" style={{ background: t.surface, border: `1px solid ${t.border}` }}>
+                <span className="text-sm" style={{ color: t.muted }}>버전</span>
+                <span className="text-xs font-medium" style={{ color: t.label }}>v1.0.0</span>
+              </div>
+
+              {/* 로그아웃 */}
               <button onClick={async () => { await supabase.auth.signOut(); router.push('/login') }}
-                className="w-full py-3.5 rounded-2xl text-sm font-medium" style={{ background: t.surface, color: '#ef4444', border: `1px solid ${t.border}` }}>로그아웃</button>
+                className="w-full py-3.5 rounded-2xl text-sm font-medium" style={{ background: t.surface, color: '#ef4444', border: `1px solid ${t.border}` }}>
+                로그아웃
+              </button>
+
+              {/* 계정 탈퇴 */}
+              <button onClick={async () => {
+                if (!confirm('정말 탈퇴하시겠어요?\n모든 데이터가 삭제되며 복구할 수 없어요.')) return
+                if (!confirm('마지막 확인입니다.\n탈퇴 후 같은 계정으로 재가입해도 데이터가 복구되지 않아요.')) return
+                try {
+                  await supabase.rpc('delete_my_account')
+                  await supabase.auth.signOut()
+                  router.push('/')
+                } catch {
+                  alert('탈퇴 처리 중 오류가 발생했어요. 문의해주세요.')
+                }
+              }} className="w-full py-3 rounded-2xl text-xs font-medium" style={{ background: 'transparent', color: t.label, border: `1px solid ${t.borderSub}` }}>
+                계정 탈퇴
+              </button>
             </div>
           )}
         </div>
